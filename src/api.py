@@ -10,18 +10,96 @@ import logging
 import time
 from datetime import datetime
 import sys
+import os
+import signal
+import asyncio
+from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
+# Load environment variables from .env file
+load_dotenv()
+
+# Determine if we're in development mode
+IS_DEV = os.getenv('NODE_ENV') == 'development'
+
+# Determine log directory and environment
+logs_dir = os.getenv('HERMIONE_LOG_DIR')
+
+if not logs_dir:
+    logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    try:
+        os.makedirs(logs_dir, exist_ok=True)
+    except Exception as e:
+        print(f"Failed to create logs directory: {e}")
+        logs_dir = os.path.dirname(__file__)
+
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('app.log')
+        logging.FileHandler(os.path.join(logs_dir, 'api.log'), mode='a')
     ]
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Hermione Agent API")
+# Log startup information
+logger.info("Starting Hermione API server")
+logger.info(f"Python executable: {sys.executable}")
+logger.info(f"Current directory: {os.getcwd()}")
+logger.info(f"Log directory: {logs_dir}")
+
+# Global shutdown event
+shutdown_event = asyncio.Event()
+
+# Global agent variable
+agent = None
+
+# Get environment variables
+PORT = int(os.getenv('API_PORT', '8123'))
+HOST = '127.0.0.1'
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global agent
+    try:
+        # Startup
+        logger.info("Starting up API server")
+        logger.info(f"Python path: {sys.executable}")
+        logger.info(f"API script path: {os.path.abspath(__file__)}")
+        logger.info(f"Environment: {'development' if IS_DEV else 'production'}")
+        logger.info(f"Host: {HOST}")
+        logger.info(f"Port: {PORT}")
+
+        # Setup signal handlers
+        def handle_signal(signum, frame):
+            logger.info(f"Received signal {signum}")
+            asyncio.create_task(shutdown())
+
+        signal.signal(signal.SIGTERM, handle_signal)
+        signal.signal(signal.SIGINT, handle_signal)
+
+        # Initialize the agent
+        agent = AgentBuilder().build()
+        logger.info("Agent initialized successfully")
+
+        yield
+
+    except Exception as e:
+        logger.error(f"Error during startup: {e}")
+        raise
+    finally:
+        # Shutdown
+        logger.info("Shutting down API server")
+        shutdown_event.set()
+        await asyncio.sleep(1)  # Give time for cleanup
+
+async def shutdown():
+    logger.info("Initiating graceful shutdown")
+    shutdown_event.set()
+
+app = FastAPI(title="Hermione Agent API", lifespan=lifespan)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -40,9 +118,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize the agent
-agent = AgentBuilder().build()
 
 class SimpleRequest(BaseModel):
     content: str
@@ -64,6 +139,21 @@ async def run(request: SimpleRequest):
         logger.error(f"Error in run: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
 if __name__ == "__main__":
-    logger.info("Starting Hermione Agent API server")
-    uvicorn.run("api:app", host="0.0.0.0", port=8123, reload=True)
+    try:
+        logger.info("Starting Hermione Agent API server")
+        uvicorn.run(
+            "api:app",
+            host=HOST,
+            port=PORT,
+            reload=False,
+            workers=1,
+            log_level="info"
+        )
+    except Exception as e:
+        logger.error(f"Error running server: {e}")
+        sys.exit(1)

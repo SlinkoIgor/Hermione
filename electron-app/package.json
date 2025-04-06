@@ -19,6 +19,7 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
+    "electron-log": "^5.3.3",
     "node-fetch": "^2.7.0"
   },
   "build": {
@@ -30,8 +31,26 @@
       "icon": "src/assets/icon.png"
     },
     "files": [
-      "src/**/*"
+      "src/**/*",
+      "../src/**/*",
+      "../.venv/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../src",
+        "to": "src",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../.venv",
+        "to": ".venv",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "publish": null
   }
-} 
+}

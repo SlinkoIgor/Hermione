@@ -3,30 +3,30 @@
 # Exit on error
 set -e
 
-echo "Installing Hermione Electron App on macOS..."
+echo "Installing Hermione Electron App..."
 
-# Check if the app is built
-if [ ! -d "dist/mac" ]; then
-    echo "The app is not built yet. Building the app..."
-    npm run build
+# Run setup if node_modules doesn't exist
+if [ ! -d "node_modules" ]; then
+    ./setup.sh
 fi
 
-# Find the app in the dist directory
-APP_PATH=$(find dist -name "Hermione.app" | head -n 1)
+# Build the app
+npm run build
 
-if [ -z "$APP_PATH" ]; then
-    echo "Error: Could not find the built app in the dist directory."
+# Find the app directory (handles both arm64 and x64 builds)
+APP_PATH=$(find dist -name "Hermione.app" -type d | head -n 1)
+
+if [ -n "$APP_PATH" ]; then
+    # Remove existing installation
+    rm -rf "/Applications/Hermione.app"
+    # Copy new version
+    cp -R "$APP_PATH" "/Applications/"
+    # Set up auto-launch
+    osascript -e 'tell application "System Events" to make login item at end with properties {path:"/Applications/Hermione.app", hidden:false}'
+    echo "✅ Installation complete! App installed to /Applications/Hermione.app"
+else
+    echo "❌ Build failed - app not found in dist/"
+    echo "Build output directories:"
+    ls -la dist/
     exit 1
 fi
-
-# Copy the app to the Applications folder
-echo "Copying the app to the Applications folder..."
-cp -R "$APP_PATH" "/Applications/"
-
-# Set up auto-launch on startup
-echo "Setting up auto-launch on startup..."
-osascript -e 'tell application "System Events" to make login item at end with properties {path:"/Applications/Hermione.app", hidden:false}'
-
-echo "Installation complete!"
-echo "The app has been installed to /Applications/Hermione.app"
-echo "It will start automatically when you log in."
