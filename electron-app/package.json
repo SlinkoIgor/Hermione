@@ -1,0 +1,37 @@
+{
+  "name": "hermione-electron",
+  "version": "1.0.0",
+  "description": "Electron app for Hermione API",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/hermione.git"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  },
+  "build": {
+    "appId": "com.hermione.app",
+    "productName": "Hermione",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "dmg",
+      "icon": "src/assets/icon.png"
+    },
+    "files": [
+      "src/**/*"
+    ],
+    "publish": null
+  }
+} 
