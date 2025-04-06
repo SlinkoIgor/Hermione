@@ -273,153 +273,41 @@ function startPythonServer() {
 function registerShortcut() {
   globalShortcut.register('Option+H', () => {
     if (process.platform === 'darwin') {
-      // On macOS, use a more direct approach with a shell script
-      const scriptPath = path.join(__dirname, 'get_selected_text.sh');
+      const selectedText = clipboard.readText();
       
-      // Create the shell script if it doesn't exist
-      if (!fs.existsSync(scriptPath)) {
-        const scriptContent = `#!/bin/bash
-# Store the current clipboard content
-OLD_CLIPBOARD=$(pbpaste)
-
-# Simulate Cmd+C to copy the selected text
-osascript -e 'tell application "System Events" to keystroke "c" using command down'
-sleep 0.1
-
-# Get the selected text
-SELECTED_TEXT=$(pbpaste)
-
-# Restore the original clipboard content
-echo "$OLD_CLIPBOARD" | pbcopy
-
-# Output the selected text
-echo "$SELECTED_TEXT"
-`;
-        fs.writeFileSync(scriptPath, scriptContent);
-        fs.chmodSync(scriptPath, '755'); // Make the script executable
-      }
-      
-      // Execute the shell script
-      exec(scriptPath, (error, stdout, stderr) => {
-        if (error) {
-          console.error('Error executing script:', error);
-          return;
-        }
-        
-        const selectedText = stdout.trim();
-        
-        if (selectedText) {
-          // Send the selected text to the API
-          fetch('http://127.0.0.1:8123/runs', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              content: selectedText
-            }),
-          })
-          .then(response => response.text())
-          .then(responseText => {
-            console.log('API response:', responseText);
-            
-            // Extract content from the response
-            const contentMatch = responseText.match(/content='([^']+)'/);
-            let content = contentMatch ? contentMatch[1] : responseText;
-            
-            // Parse Python string format
-            content = JSON.parse('"' + content.replace(/^"|"$/g, '').replace(/\\"/g, '"') + '"');
-            
-            // Copy the response to clipboard
-            clipboard.writeText(content);
-            
-            // Create a popup with the response
-            createPopupWindow(content);
-            
-            // Notify the user that the response is ready to paste
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('response-ready', content);
+      if (selectedText) {
+        fetch('http://127.0.0.1:8123/runs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: selectedText
+          }),
+        })
+        .then(response => response.json())
+        .then(responseData => {
+          console.log('API response:', responseData);
+          
+          let content = responseData;
+          if (typeof responseData === 'string') {
+            try {
+              content = JSON.parse(responseData);
+            } catch (e) {
+              content = responseData;
             }
-          })
-          .catch(error => {
-            console.error('Error calling API:', error);
-          });
-        }
-      });
-    } else {
-      // For Windows, use a similar approach
-      const scriptPath = path.join(__dirname, 'get_selected_text.ps1');
-      
-      // Create the PowerShell script if it doesn't exist
-      if (!fs.existsSync(scriptPath)) {
-        const scriptContent = `
-# Store the current clipboard content
-$OLD_CLIPBOARD = Get-Clipboard
-
-# Simulate Ctrl+C to copy the selected text
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.SendKeys]::SendWait("^c")
-Start-Sleep -Milliseconds 100
-
-# Get the selected text
-$SELECTED_TEXT = Get-Clipboard
-
-# Restore the original clipboard content
-$OLD_CLIPBOARD | Set-Clipboard
-
-# Output the selected text
-$SELECTED_TEXT
-`;
-        fs.writeFileSync(scriptPath, scriptContent);
+          }
+          
+          createPopupWindow(content);
+          
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('response-ready', content);
+          }
+        })
+        .catch(error => {
+          console.error('Error calling API:', error);
+        });
       }
-      
-      // Execute the PowerShell script
-      exec(`powershell -ExecutionPolicy Bypass -File "${scriptPath}"`, (error, stdout, stderr) => {
-        if (error) {
-          console.error('Error executing script:', error);
-          return;
-        }
-        
-        const selectedText = stdout.trim();
-        
-        if (selectedText) {
-          // Send the selected text to the API
-          fetch('http://127.0.0.1:8123/runs', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              content: selectedText
-            }),
-          })
-          .then(response => response.text())
-          .then(responseText => {
-            console.log('API response:', responseText);
-            
-            // Extract content from the response
-            const contentMatch = responseText.match(/content='([^']+)'/);
-            let content = contentMatch ? contentMatch[1] : responseText;
-            
-            // Parse Python string format
-            content = JSON.parse('"' + content.replace(/^"|"$/g, '').replace(/\\"/g, '"') + '"');
-            
-            // Copy the response to clipboard
-            clipboard.writeText(content);
-            
-            // Create a popup with the response
-            createPopupWindow(content);
-            
-            // Notify the user that the response is ready to paste
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('response-ready', content);
-            }
-          })
-          .catch(error => {
-            console.error('Error calling API:', error);
-          });
-        }
-      });
     }
   });
 }
