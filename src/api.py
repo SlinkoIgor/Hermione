@@ -57,7 +57,8 @@ shutdown_event = asyncio.Event()
 agent = None
 
 # Get environment variables
-PORT = int(os.getenv('API_PORT', '8123'))
+DEFAULT_PORT = 8123
+PORT = int(os.getenv('API_PORT', str(DEFAULT_PORT)))
 HOST = '127.0.0.1'
 
 @asynccontextmanager
@@ -92,12 +93,22 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown
         logger.info("Shutting down API server")
-        shutdown_event.set()
-        await asyncio.sleep(1)  # Give time for cleanup
+        await shutdown()
 
 async def shutdown():
     logger.info("Initiating graceful shutdown")
     shutdown_event.set()
+    try:
+        # Give time for cleanup
+        await asyncio.sleep(2)
+        # Force close any remaining connections
+        for task in asyncio.all_tasks():
+            if task is not asyncio.current_task():
+                task.cancel()
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
+    finally:
+        logger.info("Shutdown complete")
 
 app = FastAPI(title="Hermione Agent API", lifespan=lifespan)
 

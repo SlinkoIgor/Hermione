@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Hermione</title>
+  <title>Snitch</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -15,90 +15,37 @@
       max-width: 600px;
       margin: 0 auto;
       background-color: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     h1 {
-      margin-top: 0;
       color: #2c3e50;
-    }
-    .status {
-      padding: 10px;
-      margin: 10px 0;
-      border-radius: 4px;
-      background-color: #e8f5e9;
-      border-left: 4px solid #4caf50;
-    }
-    .instructions {
-      margin-top: 20px;
-      padding: 15px;
-      background-color: #e3f2fd;
-      border-radius: 4px;
-      border-left: 4px solid #2196f3;
+      margin-bottom: 20px;
+      text-align: center;
     }
     .shortcut {
-      display: inline-block;
-      padding: 2px 8px;
-      background-color: #f1f1f1;
+      background-color: #f0f0f0;
+      padding: 2px 6px;
       border-radius: 4px;
       font-family: monospace;
-      font-size: 0.9em;
     }
-    .notification {
-      display: none;
-      padding: 15px;
-      margin: 15px 0;
-      border-radius: 4px;
-      background-color: #fff3e0;
-      border-left: 4px solid #ff9800;
-      animation: fadeIn 0.5s;
+    ul {
+      list-style-type: none;
+      padding: 0;
     }
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
+    li {
+      margin-bottom: 15px;
+      line-height: 1.5;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Hermione</h1>
-    
-    <div class="status">
-      <strong>Status:</strong> Running
-    </div>
-    
-    <div id="notification" class="notification">
-      <strong>Response ready!</strong> Press <span class="shortcut">Cmd+V</span> to paste at cursor location.
-    </div>
-    
-    <div class="instructions">
-      <h3>How to use:</h3>
-      <ol>
-        <li>Copy any text to your clipboard</li>
-        <li>Press <span class="shortcut">Option+H</span> to send the clipboard text to Hermione</li>
-        <li>The response will be copied to your clipboard</li>
-        <li>Press <span class="shortcut">Cmd+V</span> to paste the response at your cursor location</li>
-      </ol>
-    </div>
-    
-    <p>The app is running in the background. You can access it from the menu bar icon.</p>
+    <h1>Snitch</h1>
+    <ul>
+      <li>Press <span class="shortcut">Option+H</span> to send the clipboard text to Snitch</li>
+    </ul>
   </div>
-  
-  <script>
-    const { ipcRenderer } = require('electron');
-    
-    // Listen for the response-ready event
-    ipcRenderer.on('response-ready', (event, responseText) => {
-      // Show the notification
-      const notification = document.getElementById('notification');
-      notification.style.display = 'block';
-      
-      // Hide the notification after 5 seconds
-      setTimeout(() => {
-        notification.style.display = 'none';
-      }, 5000);
-    });
-  </script>
 </body>
 </html> 

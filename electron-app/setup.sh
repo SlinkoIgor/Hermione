@@ -3,7 +3,7 @@
 # Exit on error
 set -e
 
-echo "Setting up Hermione Electron App..."
+echo "Setting up Snitch Electron App..."
 
 # Install npm dependencies
 npm install

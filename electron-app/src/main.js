@@ -13,7 +13,8 @@ let popupWindow = null;
 
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
-const API_PORT = process.env.API_PORT || (IS_DEV ? 8124 : 8123);
+const DEFAULT_PORT = 8123;
+const API_PORT = process.env.API_PORT || (IS_DEV ? 8124 : DEFAULT_PORT);
 const API_HOST = '127.0.0.1';
 
 // Path to the Python executable in the virtual environment
@@ -28,7 +29,7 @@ const apiScriptPath = IS_DEV
 // Create the tray icon
 function createTray() {
   tray = new Tray(path.join(__dirname, 'assets', 'icon.png'));
-  tray.setToolTip('Hermione');
+  tray.setToolTip('Snitch');
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -323,7 +324,7 @@ function registerShortcut() {
       const selectedText = clipboard.readText();
 
       if (selectedText) {
-        fetch('http://127.0.0.1:8123/runs', {
+        fetch(`http://${API_HOST}:${API_PORT}/runs`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -429,22 +430,28 @@ async function killPythonProcess() {
     // First try SIGTERM
     pythonProcess.kill('SIGTERM');
     
-    // If process doesn't exit within 2 seconds, use SIGKILL
+    // If process doesn't exit within 5 seconds, use SIGKILL
     setTimeout(() => {
       if (pythonProcess) {
         log.info('Python process still running, sending SIGKILL');
         pythonProcess.kill('SIGKILL');
         
-        // On macOS, also try pkill
+        // On macOS, also try pkill with a more specific pattern
         if (process.platform === 'darwin') {
           exec('pkill -f "python.*api.py"', (error) => {
             if (error) {
               log.error('Error killing Python processes:', error);
             }
+            // Additional cleanup for macOS
+            exec(`lsof -ti:${API_PORT} | xargs kill -9`, (error) => {
+              if (error) {
+                log.error(`Error killing process on port ${API_PORT}:`, error);
+              }
+            });
           });
         }
       }
-    }, 2000);
+    }, 5000);
   });
 }
 
@@ -456,8 +463,20 @@ async function quitApp() {
   log.info('Quitting application');
   
   try {
-    // Kill Python process first
+    // Kill Python process first and wait for it to complete
     await killPythonProcess();
+    
+    // Additional cleanup for macOS
+    if (process.platform === 'darwin') {
+      await new Promise(resolve => {
+        exec(`lsof -ti:${API_PORT} | xargs kill -9`, (error) => {
+          if (error) {
+            log.error('Error in final port cleanup:', error);
+          }
+          resolve();
+        });
+      });
+    }
     
     // Clean up windows and tray
     if (mainWindow) {

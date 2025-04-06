@@ -2,12 +2,12 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('Checking prerequisites for Hermione Electron App...');
+console.log('Checking prerequisites for Snitch Electron App...');
 
 // Check if Node.js is installed
 try {
   const nodeVersion = execSync('node --version').toString().trim();
-  console.log(`✅ Node.js is installed: ${nodeVersion}`);
+  console.log(`✅ Node.js version: ${nodeVersion}`);
 } catch (error) {
   console.error('❌ Node.js is not installed.');
   console.log('\nPlease install Node.js from https://nodejs.org/');
@@ -18,7 +18,7 @@ try {
 // Check if npm is installed
 try {
   const npmVersion = execSync('npm --version').toString().trim();
-  console.log(`✅ npm is installed: ${npmVersion}`);
+  console.log(`✅ npm version: ${npmVersion}`);
 } catch (error) {
   console.error('❌ npm is not installed.');
   console.log('\nPlease install npm or reinstall Node.js from https://nodejs.org/');

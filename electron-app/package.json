@@ -1,19 +1,19 @@
 {
-  "name": "hermione-electron",
+  "name": "snitch-electron",
   "version": "1.0.0",
-  "description": "Electron app for Hermione API",
+  "description": "Electron app for Snitch API",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
-    "postinstall": "electron-builder install-app-deps"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
-  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/hermione.git"
+    "url": "https://github.com/yourusername/snitch.git"
   },
+  "author": "",
+  "license": "ISC",
   "devDependencies": {
     "electron": "^28.1.0",
     "electron-builder": "^24.9.1"
@@ -23,8 +23,8 @@
     "node-fetch": "^2.7.0"
   },
   "build": {
-    "appId": "com.hermione.app",
-    "productName": "Hermione",
+    "appId": "com.snitch.app",
+    "productName": "Snitch",
     "mac": {
       "category": "public.app-category.productivity",
       "target": "dmg",
