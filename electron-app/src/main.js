@@ -107,19 +107,24 @@ function createPopupWindow(responseText) {
           padding: 0;
           height: 100%;
           background: transparent;
+          overflow: hidden;
         }
         .container {
           position: relative;
           margin: 0;
-          padding: 15px;
+          padding: 8px;
           background-color: rgba(255, 255, 255, 0.95);
           border-radius: 8px;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-          min-height: calc(100% - 30px);
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+          height: 100%;
           color: #333;
-          overflow: auto;
-          max-height: 200px;
+        }
+        .content-wrapper {
+          height: calc(100% - 30px);
+          margin-top: 30px;
+          overflow-y: auto;
+          overflow-x: hidden;
+          padding: 0 4px;
         }
         .titlebar {
           position: absolute;
@@ -153,10 +158,12 @@ function createPopupWindow(responseText) {
           -webkit-app-region: no-drag;
         }
         .response-text {
-          margin-top: 30px;
-          line-height: 1.5;
-          padding-bottom: 10px;
+          font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+          font-size: 11px;
+          line-height: 1.4;
+          padding: 0;
           user-select: text;
+          white-space: pre-wrap;
         }
         ::-webkit-scrollbar {
           width: 8px;
@@ -178,7 +185,9 @@ function createPopupWindow(responseText) {
         <div class="titlebar" id="titlebar">
           <div class="close-btn" id="closeBtn">×</div>
         </div>
-        <div class="response-text">${responseText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+        <div class="content-wrapper">
+          <div class="response-text">${responseText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+        </div>
       </div>
       <script>
         document.getElementById('closeBtn').addEventListener('click', () => {
@@ -195,25 +204,26 @@ function createPopupWindow(responseText) {
   let isMouseOver = false;
   
   popupWindow.on('blur', () => {
-    if (!isMouseOver) {
-      const currentWindow = popupWindow;
-      if (currentWindow && !currentWindow.isDestroyed()) {
-        currentWindow.close();
-        popupWindow = null;
-      }
+    if (!isMouseOver && popupWindow && !popupWindow.isDestroyed()) {
+      popupWindow.close();
+      popupWindow = null;
     }
   });
 
-  popupWindow.webContents.on('dom-ready', () => {
-    popupWindow.webContents.executeJavaScript(`
-      document.addEventListener('mouseenter', () => {
-        window.electronAPI.setMouseOver(true);
-      });
-      document.addEventListener('mouseleave', () => {
-        window.electronAPI.setMouseOver(false);
-      });
-    `);
-  });
+  if (popupWindow && !popupWindow.isDestroyed()) {
+    popupWindow.webContents.on('dom-ready', () => {
+      if (popupWindow && !popupWindow.isDestroyed()) {
+        popupWindow.webContents.executeJavaScript(`
+          document.addEventListener('mouseenter', () => {
+            window.electronAPI.setMouseOver(true);
+          });
+          document.addEventListener('mouseleave', () => {
+            window.electronAPI.setMouseOver(false);
+          });
+        `);
+      }
+    });
+  }
 
   // Handle IPC for mouse over state
   ipcMain.on('set-mouse-over', (event, value) => {
@@ -313,15 +323,22 @@ echo "$SELECTED_TEXT"
           .then(responseText => {
             console.log('API response:', responseText);
             
+            // Extract content from the response
+            const contentMatch = responseText.match(/content='([^']+)'/);
+            let content = contentMatch ? contentMatch[1] : responseText;
+            
+            // Parse Python string format
+            content = JSON.parse('"' + content.replace(/^"|"$/g, '').replace(/\\"/g, '"') + '"');
+            
             // Copy the response to clipboard
-            clipboard.writeText(responseText);
+            clipboard.writeText(content);
             
             // Create a popup with the response
-            createPopupWindow(responseText);
+            createPopupWindow(content);
             
             // Notify the user that the response is ready to paste
-            if (mainWindow) {
-              mainWindow.webContents.send('response-ready', responseText);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('response-ready', content);
             }
           })
           .catch(error => {
@@ -380,15 +397,22 @@ $SELECTED_TEXT
           .then(responseText => {
             console.log('API response:', responseText);
             
+            // Extract content from the response
+            const contentMatch = responseText.match(/content='([^']+)'/);
+            let content = contentMatch ? contentMatch[1] : responseText;
+            
+            // Parse Python string format
+            content = JSON.parse('"' + content.replace(/^"|"$/g, '').replace(/\\"/g, '"') + '"');
+            
             // Copy the response to clipboard
-            clipboard.writeText(responseText);
+            clipboard.writeText(content);
             
             // Create a popup with the response
-            createPopupWindow(responseText);
+            createPopupWindow(content);
             
             // Notify the user that the response is ready to paste
-            if (mainWindow) {
-              mainWindow.webContents.send('response-ready', responseText);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('response-ready', content);
             }
           })
           .catch(error => {
