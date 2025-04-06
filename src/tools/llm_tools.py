@@ -34,8 +34,11 @@ def translate_text(
             If the text is NOT in {native_language}, then additionally to translation, fix the grammar of the text.
             FORMAT:
             =======<translated_text>=======
+
             [translated_text]
+
             =======<fixed_text>=======
+
             [fixed_text]
             IF the text is in {native_language}, then only return the translated text, no explanations or other text.
             Only return the translated text (and fixed text, if applicable), no explanations or other text.""")

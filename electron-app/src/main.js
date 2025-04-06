@@ -73,13 +73,13 @@ function createPopupWindow(responseText) {
   // Get the cursor position
   const cursorPosition = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPosition);
-  
+
   // Close any existing popup
   if (popupWindow) {
     popupWindow.close();
     popupWindow = null;
   }
-  
+
   // Create a new popup window
   popupWindow = new BrowserWindow({
     width: 400,
@@ -95,7 +95,7 @@ function createPopupWindow(responseText) {
       contextIsolation: false
     }
   });
-  
+
   // Load HTML content directly
   const htmlContent = `
     <!DOCTYPE html>
@@ -197,12 +197,21 @@ function createPopupWindow(responseText) {
     </body>
     </html>
   `;
-  
+
   popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
-  
+
   // Close the popup when it loses focus and is not being dragged
   let isMouseOver = false;
-  
+
+  // Add event listener for Escape key to close the popup
+  popupWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'Escape') {
+      popupWindow.close();
+      popupWindow = null;
+      event.preventDefault();
+    }
+  });
+
   popupWindow.on('blur', () => {
     if (!isMouseOver && popupWindow && !popupWindow.isDestroyed()) {
       popupWindow.close();
@@ -229,7 +238,7 @@ function createPopupWindow(responseText) {
   ipcMain.on('set-mouse-over', (event, value) => {
     isMouseOver = value;
   });
-  
+
   // Handle window close event
   popupWindow.on('closed', () => {
     popupWindow = null;
@@ -274,7 +283,7 @@ function registerShortcut() {
   globalShortcut.register('Option+H', () => {
     if (process.platform === 'darwin') {
       const selectedText = clipboard.readText();
-      
+
       if (selectedText) {
         fetch('http://127.0.0.1:8123/runs', {
           method: 'POST',
@@ -288,7 +297,7 @@ function registerShortcut() {
         .then(response => response.json())
         .then(responseData => {
           console.log('API response:', responseData);
-          
+
           let content = responseData;
           if (typeof responseData === 'string') {
             try {
@@ -297,9 +306,9 @@ function registerShortcut() {
               content = responseData;
             }
           }
-          
+
           createPopupWindow(content);
-          
+
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('response-ready', content);
           }
@@ -315,31 +324,31 @@ function registerShortcut() {
 // Properly quit the application
 function quitApp() {
   isQuitting = true;
-  
+
   // Kill the Python process if it exists
   if (pythonProcess) {
     pythonProcess.kill();
     pythonProcess = null;
   }
-  
+
   // Close the main window
   if (mainWindow) {
     mainWindow.close();
     mainWindow = null;
   }
-  
+
   // Close the popup window if it exists
   if (popupWindow) {
     popupWindow.close();
     popupWindow = null;
   }
-  
+
   // Remove the tray icon
   if (tray) {
     tray.destroy();
     tray = null;
   }
-  
+
   // Quit the app
   app.quit();
 }
