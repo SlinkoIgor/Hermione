@@ -10,3 +10,7 @@ notebook
 # tavily-python
 # wikipedia
 langgraph-cli
+grandalf
+fastapi
+uvicorn
+pydantic
