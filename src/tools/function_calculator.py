@@ -25,7 +25,7 @@ def clean_user_script(user_script: str) -> str:
     return '\n'.join(cleaned_lines)
 
 def format_output(script: str, result: Any) -> str:
-    return f"{result}\n\n=====<script>======\n{script}"
+    return f"=======<result>=======\n{result}\n\n=====<script>======\n{script}"
 
 def calculate_formula(user_script: str) -> Union[Any, str]:
     """Safely executes a user provided script with restricted built-ins and a time limit.

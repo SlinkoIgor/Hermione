@@ -7,7 +7,7 @@ def translate_text(
     text: str,
     native_language: str,
     target_language: str,
-    language_of_query: str
+    is_native_language: bool
 ) -> str:
     """Translates text to the specified target language.
 
@@ -15,18 +15,17 @@ def translate_text(
         text: The text to be translated.
         native_language: The user's native language (e.g., "English", "Spanish", "Russian").
         target_language: The target language for translation (e.g., "English", "Spanish", "Russian").
-        language_of_query: The language of the input text.
+        is_native_language: Whether the text is in the native language (True or False).
     Returns:
         The translated text in the target language.
 
     Examples:
-        translate_text("Hello world", "English", "Spanish", "English") returns "Hola mundo"
-        translate_text("Bonjour le monde", "English", "German", "French") returns "Hello world"
+        translate_text("Hello world", "English", "Spanish", True) returns "Hola mundo"
+        translate_text("Bonjour le monde", "English", "German", False) returns "Hello world"
     """
+    target = target_language if is_native_language else native_language
     system_prompt = dedent(f"""You are a professional translator.
-    You are given a text (or word) in {language_of_query} language.
-    If {language_of_query} is {native_language}, then proceed with plan A: translate text (or word) to {target_language}.
-    Otherwise proceed with plan B: translate text (or word) to {native_language}.
+    Translate the given text (or word) to {target}.
     Maintain the original meaning, tone, and style as much as possible.
     Only return the translated text (or word), no explanations or other text.
 
@@ -98,13 +97,42 @@ def explain_word(
     response = llm.invoke(messages)
     return response.content
 
+
+def text_summarization(
+    text: str,
+    native_language: str
+) -> str:
+    """Summarizes text into a TL;DR in the native language.
+
+    Parameters:
+        text: The text to be summarized.
+        native_language: The user's native language (e.g., "English", "Spanish", "Russian").
+    Returns:
+        A concise summary of the text in the native language.
+
+    Examples:
+        text_summarization("Long text...", "English") returns "Summary in English"
+    """
+    system_prompt = dedent(f"""You are a professional summarizer.
+    Create a concise TL;DR summary of the given text in {native_language}.
+    The summary should be no more than 3 sentences and capture the main points.
+    Only return the summary, no explanations or other text.""")
+
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+    messages = [SystemMessage(system_prompt), HumanMessage(text)]
+
+    response = llm.invoke(messages)
+    return response.content
+
+
 if __name__ == "__main__":
     original = "Hello world"
-    translated = translate_text(original, "Spanish")
+    translated = translate_text(original, "Spanish", "Spanish", True)
     print(f"Original: {original}")
     print(f"Translated: {translated}")
 
     original_fr = "Bonjour le monde"
-    translated_from_fr = translate_text(original_fr, "English")
+    translated_from_fr = translate_text(original_fr, "English", "German", False)
     print(f"Original: {original_fr}")
     print(f"Translated: {translated_from_fr}")

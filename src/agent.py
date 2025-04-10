@@ -5,10 +5,9 @@ from langgraph.graph import START, END, StateGraph
 from langgraph.prebuilt import ToolNode
 from tools.function_calculator import calculate_formula
 from tools.tz_convertor import convert_time
-from tools.llm_tools import translate_text, fix_text, explain_word
+from tools.llm_tools import translate_text, fix_text, explain_word, text_summarization
 from textwrap import dedent
 from typing import Dict, Any
-import asyncio
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
@@ -17,8 +16,8 @@ time_zone_prompt = dedent("""
     1. **Query:** "let's meet at H1H1:M1M1 [time_zone/location] time"
     **Answer:** "let's meet at H2H2:M2M2 [current_location] time"
 
-    2. **Query:** "давай встретимся в 3 дня Берлину"
-    **Answer:** "давай встретимся в 2 дня по Никосии"  (in this toy example the current location is set to Nicosia)
+    2. **Query:** "давай встретимся в полночь по Берлину"
+    **Answer:** "давай встретимся в час ночи по Никосии"  (in this toy example the current location is set to Nicosia)
 
     3. **Query:** "можем ли мы перенести встречу в 10 AM по NY на час вперед?"
     **Answer:** "можем ли мы перенести встречу в 3 PM по Барселоне на час вперед?" (in this toy example the current location is set to Barcelona)
@@ -34,8 +33,11 @@ time_zone_prompt = dedent("""
     1. convert [time_zone/location] to the correct_time_zone in python format (e.g. "Europe/Berlin", "America/New_York")
     2. convert current_location which is {current_location} to the correct_current_time_zone in python format (e.g. "Europe/Berlin", "America/New_York")
     3. run a function convert_time with the correct arguments (H1H1:M1M1, correct_time_zone, correct_current_time_zone)
-    4. construct the answer from the result of the convert_time function in the {language_of_query} and with correct wording
-       (considering cases, declensions, etc.), deviating minimally from the original form of the sentence.
+    4. construct the answer from the result of the convert_time function with the same wording as the original sentence.
+        Do not add new text, only rewrite the text with the new time.
+
+    YOU MUST CALL THE TOOL!!!
+    YOU MUST CALL THE TOOL!!!
     """)
 
 math_formula_calculation_prompt = dedent("""
@@ -75,17 +77,19 @@ router_prompt = dedent("""
     2. math_formula_calculation - If the input has a math formula
     3. text_task - all other cases
 
-    Return format: task_name, language_of_query
+    Return format: task_name, is_native_language
 
-    Return ONLY the task name and language of a query as a string with a comma delimiter, nothing else.
+    Return ONLY the task name and whether the text is in the native language ({native_language}) as a string with a comma delimiter, nothing else.
+    The second part should be "True" if the text is in {native_language} or "False" otherwise.
     """)
 
 
 class AgentState(MessagesState):
     task: str
-    language_of_query: str
+    is_native_language: bool
     translated_text: str
     fixed_text: str
+    summarized_text: str
 
 
 class AgentBuilder:
@@ -111,11 +115,11 @@ class AgentBuilder:
             user_message = state["messages"][0]
             user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
             task_response = router_llm.invoke([task_message, HumanMessage(content=user_content)])
-            task_name, language_of_query = task_response.content.lower().split(",")
+            task_name, is_native_language = task_response.content.lower().split(",")
             task_name = task_name.strip()
-            language_of_query = language_of_query.strip()
+            is_native_language = is_native_language.strip() == "true"
 
-            return {"task": task_name, "language_of_query": language_of_query}
+            return {"task": task_name, "is_native_language": is_native_language}
 
         # def word_explanation_node(state: AgentState) -> Dict[str, Any]:
         #     explanation = explain_word(word=state["messages"][0].content,
@@ -123,14 +127,35 @@ class AgentBuilder:
         #     return {"messages": AIMessage(explanation)}
 
         def text_task_junction_node(state: AgentState) -> Dict[str, Any]:
-            return {"next": ["text_translation_node", "text_fix_node"]}
+            # Check if text is longer than 100 words
+            text = state["messages"][0].content
+
+            # More accurate word count calculation
+            # Remove extra whitespace and count words
+            words = [word for word in text.split() if word.strip()]
+            word_count = len(words)
+
+            # Debug information
+            print(f"Text length: {len(text)} characters")
+            print(f"Word count: {word_count} words")
+
+            # Only trigger summarization for texts longer than 100 words
+            should_summarize = word_count > 100
+
+            if should_summarize:
+                print(f"Text is long enough ({word_count} words), adding summarization node")
+            else:
+                print(f"Text is too short ({word_count} words), skipping summarization")
+
+            # Return the decision about whether to summarize
+            return {"should_summarize": should_summarize}
 
         def text_translation_node(state: AgentState) -> Dict[str, Any]:
             translated_text = translate_text(
                 text=state["messages"][0].content,
                 native_language=self.native_language,
                 target_language=self.target_language,
-                language_of_query=state["language_of_query"]
+                is_native_language=state["is_native_language"]
             )
             return {"translated_text": translated_text}
 
@@ -140,25 +165,42 @@ class AgentBuilder:
             )
             return {"fixed_text": fixed_text}
 
+        def text_summarization_node(state: AgentState) -> Dict[str, Any]:
+            summarized_text = text_summarization(
+                text=state["messages"][0].content,
+                native_language=self.native_language
+            )
+            return {"summarized_text": summarized_text}
+
         def text_aggregation_node(state: AgentState) -> Dict[str, Any]:
             translated_text = state.get("translated_text", "")
             fixed_text = state.get("fixed_text", "")
-            output_text = f"{translated_text}\n\n=======<fixed_text>=======\n\n{fixed_text}"
+            summarized_text = state.get("summarized_text", "")
+
+            output_parts = []
+
+            if summarized_text:
+                output_parts.append(f"=======<tl;dr>=======\n\n{summarized_text}")
+
+            output_parts.append(f"=======<translation>=======\n\n{translated_text}")
+            output_parts.append(f"=======<fixed_text>=======\n\n{fixed_text}")
+
+            output_text = "\n\n".join(output_parts)
+
             return {"messages": AIMessage(output_text)}
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
             tz_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
                 [convert_time], parallel_tool_calls=False)
             system_msg = SystemMessage(
-                time_zone_prompt.format(current_location=self.current_location,
-                                        language_of_query=state["language_of_query"]))
+                time_zone_prompt.format(current_location=self.current_location))
             response = tz_conversion_llm.invoke([system_msg, state["messages"][0]])
             return {"messages": [system_msg, response]}
 
         def tz_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
             tz_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
             response = tz_conversion_llm.invoke(state["messages"])
-            return {"messages": response}
+            return {"messages": AIMessage(f'=======<tz_conversion>=======\n\n{response.content}')}
 
         def math_formula_calculation_node(state: AgentState) -> Dict[str, Any]:
             math_formula_calculation_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
@@ -173,6 +215,7 @@ class AgentBuilder:
         builder.add_node(text_task_junction_node)
         builder.add_node(text_translation_node)
         builder.add_node(text_fix_node)
+        builder.add_node(text_summarization_node)
         builder.add_node(text_aggregation_node)
         builder.add_node(tz_conversion_node)
         builder.add_node(math_formula_calculation_node)
@@ -195,8 +238,18 @@ class AgentBuilder:
         builder.add_edge("text_task_junction_node", "text_translation_node")
         builder.add_edge("text_task_junction_node", "text_fix_node")
 
+        builder.add_conditional_edges(
+            "text_task_junction_node",
+            lambda x: "text_summarization_node" if x.get("should_summarize", False) else "skip_summarization",
+            {
+                "text_summarization_node": "text_summarization_node",
+                "skip_summarization": "text_aggregation_node"
+            }
+        )
+
         builder.add_edge("text_translation_node", "text_aggregation_node")
         builder.add_edge("text_fix_node", "text_aggregation_node")
+        builder.add_edge("text_summarization_node", "text_aggregation_node")
         builder.add_edge("text_aggregation_node", END)
 
         builder.add_edge("tz_conversion_node", "tz_conversion_tool_node")
