@@ -5,9 +5,10 @@ from langgraph.graph import START, END, StateGraph
 from langgraph.prebuilt import ToolNode
 from tools.function_calculator import calculate_formula
 from tools.tz_convertor import convert_time
-from tools.llm_tools import translate_text, explain_word
+from tools.llm_tools import translate_text, fix_text, explain_word
 from textwrap import dedent
 from typing import Dict, Any
+import asyncio
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
@@ -72,7 +73,7 @@ router_prompt = dedent("""
     Possible tasks:
     1. tz_conversion - If the input has information about time that doesn't match the current time zone
     2. math_formula_calculation - If the input has a math formula
-    3. text_translation - all other cases
+    3. text_task - all other cases
 
     Return format: task_name, language_of_query
 
@@ -83,6 +84,8 @@ router_prompt = dedent("""
 class AgentState(MessagesState):
     task: str
     language_of_query: str
+    translated_text: str
+    fixed_text: str
 
 
 class AgentBuilder:
@@ -119,13 +122,29 @@ class AgentBuilder:
         #                                native_language=self.native_language)
         #     return {"messages": AIMessage(explanation)}
 
+        def text_task_junction_node(state: AgentState) -> Dict[str, Any]:
+            return {"next": ["text_translation_node", "text_fix_node"]}
+
         def text_translation_node(state: AgentState) -> Dict[str, Any]:
-            translation = translate_text(text=state["messages"][0].content,
-                                         native_language=self.native_language,
-                                         target_language=self.target_language,
-                                         language_of_query=state["language_of_query"],
-                                         fix_grammar=True)
-            return {"messages": AIMessage(translation)}
+            translated_text = translate_text(
+                text=state["messages"][0].content,
+                native_language=self.native_language,
+                target_language=self.target_language,
+                language_of_query=state["language_of_query"]
+            )
+            return {"translated_text": translated_text}
+
+        def text_fix_node(state: AgentState) -> Dict[str, Any]:
+            fixed_text = fix_text(
+                text=state["messages"][0].content
+            )
+            return {"fixed_text": fixed_text}
+
+        def text_aggregation_node(state: AgentState) -> Dict[str, Any]:
+            translated_text = state.get("translated_text", "")
+            fixed_text = state.get("fixed_text", "")
+            output_text = f"{translated_text}\n\n=======<fixed_text>=======\n\n{fixed_text}"
+            return {"messages": AIMessage(output_text)}
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
             tz_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
@@ -151,9 +170,10 @@ class AgentBuilder:
         builder = StateGraph(AgentState)
 
         builder.add_node(task_router_node)
-
-        # builder.add_node(word_explanation_node)
+        builder.add_node(text_task_junction_node)
         builder.add_node(text_translation_node)
+        builder.add_node(text_fix_node)
+        builder.add_node(text_aggregation_node)
         builder.add_node(tz_conversion_node)
         builder.add_node(math_formula_calculation_node)
 
@@ -166,12 +186,18 @@ class AgentBuilder:
             "task_router_node",
             lambda x: x["task"],
             {
-                # "word_explanation": "word_explanation_node",
-                "text_translation": "text_translation_node",
+                "text_task": "text_task_junction_node",
                 "tz_conversion": "tz_conversion_node",
                 "math_formula_calculation": "math_formula_calculation_node"
             }
         )
+
+        builder.add_edge("text_task_junction_node", "text_translation_node")
+        builder.add_edge("text_task_junction_node", "text_fix_node")
+
+        builder.add_edge("text_translation_node", "text_aggregation_node")
+        builder.add_edge("text_fix_node", "text_aggregation_node")
+        builder.add_edge("text_aggregation_node", END)
 
         builder.add_edge("tz_conversion_node", "tz_conversion_tool_node")
         builder.add_edge("tz_conversion_tool_node", "tz_conversion_outro_node")
@@ -179,7 +205,6 @@ class AgentBuilder:
         builder.add_edge("math_formula_calculation_node", "math_formula_calculation_tool_node")
 
         # builder.add_edge("word_explanation_node", END)
-        builder.add_edge("text_translation_node", END)
         builder.add_edge("tz_conversion_outro_node", END)
         builder.add_edge("math_formula_calculation_tool_node", END)
 

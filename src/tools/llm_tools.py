@@ -7,8 +7,7 @@ def translate_text(
     text: str,
     native_language: str,
     target_language: str,
-    language_of_query: str,
-    fix_grammar: bool = False
+    language_of_query: str
 ) -> str:
     """Translates text to the specified target language.
 
@@ -16,41 +15,48 @@ def translate_text(
         text: The text to be translated.
         native_language: The user's native language (e.g., "English", "Spanish", "Russian").
         target_language: The target language for translation (e.g., "English", "Spanish", "Russian").
-        fix_grammar: Whether to fix the grammar of the text.
+        language_of_query: The language of the input text.
     Returns:
         The translated text in the target language.
 
     Examples:
-        translate_text("Hello world", "English", "Spanish") returns "Hola mundo"
-        translate_text("Bonjour le monde", "English", "German") returns "Hello world"
+        translate_text("Hello world", "English", "Spanish", "English") returns "Hola mundo"
+        translate_text("Bonjour le monde", "English", "German", "French") returns "Hello world"
     """
     system_prompt = dedent(f"""You are a professional translator.
     You are given a text (or word) in {language_of_query} language.
     If {language_of_query} is {native_language}, then proceed with plan A: translate text (or word) to {target_language}.
     Otherwise proceed with plan B: translate text (or word) to {native_language}.
-    Maintain the original meaning, tone, and style as much as possible.""")
+    Maintain the original meaning, tone, and style as much as possible.
+    Only return the translated text (or word), no explanations or other text.
 
-    if fix_grammar:
-        print("fix_grammar", native_language)
-        system_prompt += dedent(f"""
-            If your plan is B, then additionally to translation, fix the grammar of the input text (in {language_of_query} language).
-            And apply the following format:
-
-            FORMAT:
-            [translated_text]
-
-            =======<fixed_text>=======
-
-            [fixed_text]
-            """)
-    else:
-        system_prompt += "\nOnly return the translated text (or word), no explanations or other text."
-
-    system_prompt += """
-    If it's a word not a text, then return 1 main translation and 2 possible translations with the following format:
+    If it's a word (or two words) not a text, then return 1 main translation and 2 possible translations with the following format:
     main_translation
-    [possible_translation_1, possible_translation_2]
+    [possible_translation_1, possible_translation_2]""")
+
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+    messages = [SystemMessage(system_prompt), HumanMessage(text)]
+
+    response = llm.invoke(messages)
+    return response.content
+
+
+def fix_text(
+    text: str,
+) -> str:
+    """Fixes grammar in the original text.
+
+    Parameters:
+        text: The text to be fixed.
+        language: The language of the input text.
+    Returns:
+        The text with grammar fixes.
     """
+    system_prompt = dedent(f"""You are a professional grammar editor.
+    Fix any grammar, spelling, or punctuation errors in the text.
+    Maintain the original meaning, tone, and style as much as possible.
+    Only return the fixed text, no explanations or other text.""")
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
