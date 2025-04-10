@@ -42,31 +42,28 @@ time_zone_prompt = dedent("""
     """)
 
 math_formula_calculation_prompt = dedent("""
-    #Below are the examples how to solve the task:
+    To generate the answer, you need to:
+    Write a python code that calculates the formula.
+    You are allowed to use the following safe built-ins: abs, min, max, sum, len, range, round, int,
+    float, bool, all, any, enumerate, zip, sorted, reversed, list, tuple, set, dict, math, numpy, datetime
+
+    VERY IMPORTANT: put the result in a variable called "result"
+
+    Below is an example how to solve the task:
 
     **Query:** "- (1/N) * SUM ( y_true * log(y_pred) ) where N=5 and y_true=[0,0,0,0,0] and y_pred=[0.1,0.2,0.3,0.4,0.5]"
-    **Answer:** "0."
+    **Answer:**
+    ```python
+    import numpy as np
+
+    N = 5
+    y_true = [0, 0, 0, 0, 0]
+    y_pred = [0.1, 0.2, 0.3, 0.4, 0.5]
+
+    result = -(1/N) * sum(y_true[i] * np.log(y_pred[i]) for i in range(len(y_true)))
+    ```
 
     **RETURN ONLY THE ANSWER, NO OTHER TEXT.**
-
-    To generate the answer, you need to:
-    1. Write a python code that calculates the formula.
-       You are allowed to use the following safe built-ins: abs, min, max, sum, len, range, math, numpy, datetime
-       For the previous example, the code should be:
-       ```python
-       import numpy as np
-
-       N = 5
-       y_true = [0, 0, 0, 0, 0]
-       y_pred = [0.1, 0.2, 0.3, 0.4, 0.5]
-
-       result = -(1/N) * sum(y_true[i] * np.log(y_pred[i]) for i in range(len(y_true)))
-       ```
-    2. trigger calculate_formula tool with the code written by you as an argument
-    3. Pick the result from the calculate_formula tool call
-
-    YOU MUST CALL THE TOOL!!!
-    YOU MUST CALL THE TOOL!!!
     """)
 
 currency_conversion_prompt = dedent("""
@@ -205,14 +202,10 @@ class AgentBuilder:
             return {"messages": AIMessage(f'=======<tz_conversion>=======\n\n{response.content}')}
 
         def math_formula_calculation_node(state: AgentState) -> Dict[str, Any]:
-            math_formula_calculation_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
-                [calculate_formula], parallel_tool_calls=False)
-            system_msg = SystemMessage(math_formula_calculation_prompt)
-            response = math_formula_calculation_llm.invoke([system_msg, state["messages"][0]])
-            original_input = state["messages"][0].content
-            code_with_result = f"result = {original_input}"
-            calculation_result = calculate_formula(code_with_result)
-            formatted_result = format_output(original_input, calculation_result)
+            math_formula_calculation_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
+            response = math_formula_calculation_llm.invoke([SystemMessage(math_formula_calculation_prompt), state["messages"][0]])
+            calculation_result = calculate_formula(response.content)
+            formatted_result = format_output(response.content, calculation_result)
             return {"messages": AIMessage(formatted_result)}
 
         def currency_conversion_node(state: AgentState) -> Dict[str, Any]:

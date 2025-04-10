@@ -1,6 +1,8 @@
 from typing import Any
 import math
 import numpy as np
+import signal
+import contextlib
 
 def clean_user_script(user_script: str) -> str:
     """Cleans the user script by removing code block markers and import statements.
@@ -25,6 +27,25 @@ def clean_user_script(user_script: str) -> str:
 def format_output(script: str, result: Any) -> str:
     return f"=======<result>=======\n{result}\n\n=====<script>======\n{script}"
 
+class TimeoutException(Exception):
+    pass
+
+@contextlib.contextmanager
+def timeout(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Execution timed out")
+
+    # Set the signal handler and a 1-second alarm
+    original_handler = signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+
+    try:
+        yield
+    finally:
+        # Restore the original signal handler
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, original_handler)
+
 def calculate_formula(code: str) -> Any:
     """Executes the provided Python code and returns the result.
 
@@ -34,33 +55,12 @@ def calculate_formula(code: str) -> Any:
     Returns:
         The result of executing the code
     """
+    code = clean_user_script(code)
+
     # Create a safe local environment with only allowed modules
     safe_globals = {
         # Math module and its functions
         'math': math,
-        'sqrt': math.sqrt,
-        'pow': math.pow,
-        'exp': math.exp,
-        'log': math.log,
-        'log10': math.log10,
-        'log2': math.log2,
-        'sin': math.sin,
-        'cos': math.cos,
-        'tan': math.tan,
-        'asin': math.asin,
-        'acos': math.acos,
-        'atan': math.atan,
-        'sinh': math.sinh,
-        'cosh': math.cosh,
-        'tanh': math.tanh,
-        'pi': math.pi,
-        'e': math.e,
-        'ceil': math.ceil,
-        'floor': math.floor,
-        'trunc': math.trunc,
-        'factorial': math.factorial,
-        'gcd': math.gcd,
-        'lcm': math.lcm,
 
         # NumPy module
         'np': np,
@@ -89,15 +89,21 @@ def calculate_formula(code: str) -> Any:
         'dict': dict,
     }
 
-    # Execute the code in the safe environment
-    local_vars = {}
-    exec(code, safe_globals, local_vars)
+    try:
+        # Execute the code in the safe environment with a 1-second timeout
+        local_vars = {}
+        with timeout(1):
+            exec(code, safe_globals, local_vars)
 
-    # Return the result if it exists
-    if 'result' in local_vars:
-        return local_vars['result']
-    else:
-        return "No result variable found in the code."
+        # Return the result if it exists
+        if 'result' in local_vars:
+            return local_vars['result']
+        else:
+            return "No result variable found in the code."
+    except TimeoutException:
+        return "Execution timed out after 1 second."
+    except Exception as e:
+        return f"Error executing code: {str(e)}"
 
 if __name__ == "__main__":
 

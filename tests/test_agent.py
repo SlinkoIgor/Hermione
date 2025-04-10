@@ -1,6 +1,7 @@
 import pytest
 from langchain_core.messages import HumanMessage
 from src.agent import AgentBuilder
+import numpy as np
 
 @pytest.fixture
 def agent():
@@ -68,4 +69,16 @@ def test_currency_conversion(agent):
     expected_format = "=======<convert_currency>=======\n\n"
     assert result.startswith(expected_format)
     assert " USD == " in result
-    assert " EUR" in result 
+    assert " EUR" in result
+
+def test_sum_of_logarithms(agent):
+    messages = agent.invoke({"messages": [HumanMessage("SUM(log(n)) где N = 1..10 c шагом 1")]})
+    result = str(messages['messages'][-1].content)
+    expected_result = sum(np.log(n) for n in range(1, 11))
+    assert abs(float(result.split("=======<result>=======")[1].split("=====<script>======")[0].strip()) - expected_result) < 1e-10
+
+def test_percentage_calculation(agent):
+    messages = agent.invoke({"messages": [HumanMessage("Найдите часть от целого:\nА) 23% от 300;")]})
+    result = str(messages['messages'][-1].content)
+    expected_result = (23 / 100) * 300
+    assert abs(float(result.split("=======<result>=======")[1].split("=====<script>======")[0].strip()) - expected_result) < 1e-10 
