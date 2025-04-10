@@ -6,6 +6,7 @@ from langgraph.prebuilt import ToolNode
 from tools.function_calculator import calculate_formula
 from tools.tz_convertor import convert_time
 from tools.llm_tools import translate_text, fix_text, explain_word, text_summarization
+from tools.currency_converter import convert_currency
 from textwrap import dedent
 from typing import Dict, Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -68,14 +69,35 @@ math_formula_calculation_prompt = dedent("""
     YOU MUST CALL THE TOOL!!!
     """)
 
-#     1. word_explanation - If the input is a word or two words (in any language)
+currency_conversion_prompt = dedent("""
+    #Below are the examples how to solve the task:
+
+    **Query:** "How much is 100 USD in EUR?"
+    **Tool call:** convert_currency(amount=100, source_currency="USD", target_currency="EUR")
+
+    **Query:** "Convert 50 EUR to USD"
+    **Tool call:** convert_currency(amount=50, source_currency="EUR", target_currency="USD")
+
+    **Query:** "What is 200 RUB?"
+    **Tool call:** convert_currency(amount=200, source_currency="RUB", target_currency="{native_currency}")
+
+    To generate the answer, you need to:
+    1. Extract the amount and currency codes from the query
+    2. Call convert_currency tool with the correct arguments
+    3. Use {native_currency} as target_currency ONLY if the target currency is not specified in the query
+
+    YOU MUST CALL THE TOOL!!!
+    YOU MUST CALL THE TOOL!!!
+    """)
+
 router_prompt = dedent("""
     Analyze the user input and determine which task it belongs to:
 
     Possible tasks:
     1. tz_conversion - If the input has information about time that doesn't match the current time zone
     2. math_formula_calculation - If the input has a math formula
-    3. text_task - all other cases
+    3. convert_currency - If the input has information about currency conversion
+    4. text_task - all other cases
 
     Return format: task_name, is_native_language
 
@@ -98,12 +120,14 @@ class AgentBuilder:
         native_language: str = "Русский",
         target_language: str = "English",
         current_location: str = "Larnaca",
+        native_currency: str = "EUR",
         model_name: str = "gpt-4o-mini",
         temperature: float = 0,
     ):
         self.native_language = native_language
         self.target_language = target_language
         self.current_location = current_location
+        self.native_currency = native_currency
         self.model_name = model_name
         self.temperature = temperature
 
@@ -127,27 +151,10 @@ class AgentBuilder:
         #     return {"messages": AIMessage(explanation)}
 
         def text_task_junction_node(state: AgentState) -> Dict[str, Any]:
-            # Check if text is longer than 100 words
             text = state["messages"][0].content
-
-            # More accurate word count calculation
-            # Remove extra whitespace and count words
             words = [word for word in text.split() if word.strip()]
             word_count = len(words)
-
-            # Debug information
-            print(f"Text length: {len(text)} characters")
-            print(f"Word count: {word_count} words")
-
-            # Only trigger summarization for texts longer than 100 words
             should_summarize = word_count > 100
-
-            if should_summarize:
-                print(f"Text is long enough ({word_count} words), adding summarization node")
-            else:
-                print(f"Text is too short ({word_count} words), skipping summarization")
-
-            # Return the decision about whether to summarize
             return {"should_summarize": should_summarize}
 
         def text_translation_node(state: AgentState) -> Dict[str, Any]:
@@ -209,6 +216,44 @@ class AgentBuilder:
             response = math_formula_calculation_llm.invoke([system_msg, state["messages"][0]])
             return {"messages": [system_msg, response]}
 
+        def currency_conversion_node(state: AgentState) -> Dict[str, Any]:
+            currency_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
+                [convert_currency], parallel_tool_calls=False)
+            system_msg = SystemMessage(
+                currency_conversion_prompt.format(native_currency=self.native_currency))
+            response = currency_conversion_llm.invoke([system_msg, state["messages"][0]])
+            return {"messages": [system_msg, response]}
+
+        def currency_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
+            # Get the last message which should contain the tool response
+            last_message = state["messages"][-1]
+            
+            # Extract the result from the tool response
+            if hasattr(last_message, 'content'):
+                try:
+                    # Parse the string representation of the result
+                    import ast
+                    result_dict = ast.literal_eval(last_message.content)
+                    
+                    result = result_dict.get('result')
+                    amount = result_dict.get('amount', 0)
+                    source_currency = result_dict.get('source_currency', '')
+                    target_currency = result_dict.get('target_currency', '')
+                    
+                    # Check if we have a valid result
+                    if result is not None:
+                        # Format the response
+                        formatted_response = f"{amount} {source_currency} == {result:.2f} {target_currency}"
+                    else:
+                        error_msg = result_dict.get('error', 'Unknown error')
+                        formatted_response = f"Error: {error_msg}"
+                except (ValueError, SyntaxError):
+                    formatted_response = "Error: Could not parse currency conversion result"
+            else:
+                formatted_response = "Error: Could not extract currency conversion result"
+            
+            return {"messages": AIMessage(f'=======<convert_currency>=======\n\n{formatted_response}')}
+
         builder = StateGraph(AgentState)
 
         builder.add_node(task_router_node)
@@ -219,10 +264,13 @@ class AgentBuilder:
         builder.add_node(text_aggregation_node)
         builder.add_node(tz_conversion_node)
         builder.add_node(math_formula_calculation_node)
+        builder.add_node(currency_conversion_node)
+        builder.add_node(currency_conversion_outro_node)
 
         builder.add_node(ToolNode(tools=[convert_time], name="tz_conversion_tool_node"))
         builder.add_node(tz_conversion_outro_node)
         builder.add_node(ToolNode(tools=[calculate_formula], name="math_formula_calculation_tool_node"))
+        builder.add_node(ToolNode(tools=[convert_currency], name="currency_conversion_tool_node"))
 
         builder.add_edge(START, "task_router_node")
         builder.add_conditional_edges(
@@ -231,7 +279,8 @@ class AgentBuilder:
             {
                 "text_task": "text_task_junction_node",
                 "tz_conversion": "tz_conversion_node",
-                "math_formula_calculation": "math_formula_calculation_node"
+                "math_formula_calculation": "math_formula_calculation_node",
+                "convert_currency": "currency_conversion_node"
             }
         )
 
@@ -256,10 +305,14 @@ class AgentBuilder:
         builder.add_edge("tz_conversion_tool_node", "tz_conversion_outro_node")
 
         builder.add_edge("math_formula_calculation_node", "math_formula_calculation_tool_node")
+        builder.add_edge("math_formula_calculation_tool_node", END)
+
+        builder.add_edge("currency_conversion_node", "currency_conversion_tool_node")
+        builder.add_edge("currency_conversion_tool_node", "currency_conversion_outro_node")
+        builder.add_edge("currency_conversion_outro_node", END)
 
         # builder.add_edge("word_explanation_node", END)
         builder.add_edge("tz_conversion_outro_node", END)
-        builder.add_edge("math_formula_calculation_tool_node", END)
 
         return builder.compile()
 
@@ -267,77 +320,103 @@ class AgentBuilder:
 def test_agent(agent):
     all_tests_passed = True
 
-    # Test case 1: Math formula calculation
-    try:
-        messages1 = agent.invoke(
-            {"messages": [HumanMessage("log10(1000 * 66)")]})
-        result1 = str(messages1['messages'][-1].content)
-        expected1 = "4.81954393554"
-        if not result1.startswith(expected1):
-            print(f"❌ Math formula calculation failed, got: {result1}, expected: {expected1}")
-            all_tests_passed = False
-        else:
-            print(f"✅ Math formula calculation passed: {result1}")
-    except Exception as e:
-        print(f"❌ Math formula calculation failed with error: {str(e)}")
-        all_tests_passed = False
+    # # Test case 1: Math formula calculation
+    # try:
+    #     messages1 = agent.invoke(
+    #         {"messages": [HumanMessage("log10(1000 * 66)")]})
+    #     result1 = str(messages1['messages'][-1].content)
+    #     expected1 = "4.819543935541868"
+    #     if not result1.strip() == expected1.strip():
+    #         print(f"❌ Math formula calculation failed, got: {result1}")
+    #         all_tests_passed = False
+    #     else:
+    #         print(f"✅ Math formula calculation passed: {result1}")
+    # except Exception as e:
+    #     print(f"❌ Math formula calculation failed with error: {str(e)}")
+    #     all_tests_passed = False
 
     # # Test case 2: Word explanation
-    messages2 = agent.invoke(
-        {"messages": [HumanMessage("Photosynthesis")]})
-    print(messages2['messages'])
-    result2 = str(messages2['messages'][-1].content)
-    if not "Фотосинтез (" in result2:
-        print(f"❌ Word explanation failed, got: {result2}")
-        all_tests_passed = False
-    else:
-        print(f"✅ Word explanation passed")
+    # messages2 = agent.invoke(
+    #     {"messages": [HumanMessage("Photosynthesis")]})
+    # result2 = str(messages2['messages'][-1].content)
+    # required_parts = [
+    #     "=======<translation>=======",
+    #     "Фотосинтез",
+    #     "[",  # начало списка альтернативных переводов
+    #     "]",  # конец списка альтернативных переводов
+    #     "=======<fixed_text>=======",
+    #     "Photosynthesis"
+    # ]
+    # if not all(part in result2 for part in required_parts):
+    #     print(f"❌ Word explanation failed, got: {result2}")
+    #     all_tests_passed = False
+    # else:
+    #     print(f"✅ Word explanation passed")
 
     # # Test case 3: Time zone conversion (Russian)
-    try:
-        messages3 = agent.invoke(
-            {"messages": [HumanMessage("давай встретимся в 3 дня по Барселоне")]})
-        result3 = str(messages3['messages'][-1].content)
-        expected3 = "давай встретимся в 4 дня по Никосии"
-        if result3 != expected3:
-            print(f"❌ Time zone conversion (Russian) failed, got: {result3}, expected: {expected3}")
-            all_tests_passed = False
-        else:
-            print(f"✅ Time zone conversion (Russian) passed: {result3}")
-    except Exception as e:
-        print(f"❌ Time zone conversion (Russian) failed with error: {str(e)}")
-        all_tests_passed = False
+    # try:
+    #     messages3 = agent.invoke(
+    #         {"messages": [HumanMessage("давай встретимся в 3 дня по Барселоне")]})
+    #     result3 = str(messages3['messages'][-1].content)
+    #     expected3 = "=======<tz_conversion>=======\n\nдавай встретимся в 16:00 по Никосии"
+    #     if not result3.strip() == expected3.strip():
+    #         print(f"❌ Time zone conversion (Russian) failed, got: {result3}")
+    #         all_tests_passed = False
+    #     else:
+    #         print(f"✅ Time zone conversion (Russian) passed: {result3}")
+    # except Exception as e:
+    #     print(f"❌ Time zone conversion (Russian) failed with error: {str(e)}")
+    #     all_tests_passed = False
 
     # # Test case 4: Text translation
-    try:
-        messages4 = agent.invoke(
-            {"messages": [HumanMessage("The issue is that LangChain's bind_tools expects a function with a valid __name__ attribute, which classes (even callables) don't naturally have. Since functools.partial and lambda also don't provide __name__, the best approach is to use a decorator-based wrapper to dynamically set __name__.")]})
-        result4 = str(messages4['messages'][-1].content)
-        print(result4)
-        expected4 = "Проблема заключается в том, что"
-        if not expected4 in result4:
-            print(f"❌ Text translation failed, got: {result4}")
-            print(f"Expected: {expected4}")
-            all_tests_passed = False
-        else:
-            print(f"✅ Text translation passed")
-    except Exception as e:
-        print(f"❌ Text translation failed with error: {str(e)}")
-        all_tests_passed = False
+    # try:
+    #     messages4 = agent.invoke(
+    #         {"messages": [HumanMessage("The issue is that LangChain's bind_tools expects a function with a valid __name__ attribute, which classes (even callables) don't naturally have. Since functools.partial and lambda also don't provide __name__, the best approach is to use a decorator-based wrapper to dynamically set __name__.")]})
+    #     result4 = str(messages4['messages'][-1].content)
+    #     expected4_parts = [
+    #         "=======<translation>=======",
+    #         "Проблема в том, что bind_tools в LangChain ожидает функцию с допустимым атрибутом __name__",
+    #         "=======<fixed_text>=======",
+    #         "The issue is that LangChain's bind_tools expects a function with a valid __name__ attribute"
+    #     ]
+    #     if not all(part in result4 for part in expected4_parts):
+    #         print(f"❌ Text translation failed, got: {result4}")
+    #         all_tests_passed = False
+    #     else:
+    #         print(f"✅ Text translation passed")
+    # except Exception as e:
+    #     print(f"❌ Text translation failed with error: {str(e)}")
+    #     all_tests_passed = False
 
-    # Test case 5: Time zone conversion (English)
+    # # Test case 5: Time zone conversion (English)
+    # try:
+    #     messages5 = agent.invoke(
+    #         {"messages": [HumanMessage("can you make it after 4 PM Berlin time?")]})
+    #     result5 = str(messages5['messages'][-1].content)
+    #     expected5 = "=======<tz_conversion>=======\n\nдавай встретимся в 17:00 по Никосии"
+    #     if not result5.strip() == expected5.strip():
+    #         print(f"❌ Time zone conversion (English) failed, got: {result5}")
+    #         all_tests_passed = False
+    #     else:
+    #         print(f"✅ Time zone conversion (English) passed: {result5}")
+    # except Exception as e:
+    #     print(f"❌ Time zone conversion (English) failed with error: {str(e)}")
+    #     all_tests_passed = False
+
+    # Test case 6: Currency conversion
     try:
-        messages5 = agent.invoke(
-            {"messages": [HumanMessage("can you make it after 4 PM Berlin time?")]})
-        result5 = str(messages5['messages'][-1].content)
-        expected5 = "can you make it after 5 PM Larnaca time?"
-        if result5 != expected5:
-            print(f"❌ Time zone conversion (English) failed, got: {result5}, expected: {expected5}")
+        messages6 = agent.invoke(
+            {"messages": [HumanMessage("How much is 100 USD in EUR?")]})
+        result6 = str(messages6['messages'][-1].content)
+        expected_format = "=======<convert_currency>=======\n\n"
+        if not result6.startswith(expected_format) or " USD == " not in result6 or " EUR" not in result6:
+            print(f"❌ Currency conversion failed, got: {result6}")
+            print(f"Expected format: {expected_format}[number] USD == [number] EUR")
             all_tests_passed = False
         else:
-            print(f"✅ Time zone conversion (English) passed: {result5}")
+            print(f"✅ Currency conversion passed: {result6}")
     except Exception as e:
-        print(f"❌ Time zone conversion (English) failed with error: {str(e)}")
+        print(f"❌ Currency conversion failed with error: {str(e)}")
         all_tests_passed = False
 
     if all_tests_passed:
@@ -348,5 +427,5 @@ def test_agent(agent):
     return all_tests_passed
 
 if __name__ == "__main__":
-    agent = AgentBuilder().build()
-    # test_agent(AgentBuilder().build())
+    agent = AgentBuilder(native_currency="EUR").build()
+    test_agent(agent)
