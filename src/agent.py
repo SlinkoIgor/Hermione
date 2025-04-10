@@ -60,17 +60,19 @@ math_formula_calculation_prompt = dedent("""
        ```
     2. trigger calculate_formula tool with the code written by you as an argument
     3. Pick the result from the calculate_formula tool call
+
+    YOU MUST CALL THE TOOL!!!
+    YOU MUST CALL THE TOOL!!!
     """)
 
-
+#     1. word_explanation - If the input is a word or two words (in any language)
 router_prompt = dedent("""
     Analyze the user input and determine which task it belongs to:
 
     Possible tasks:
-    1. word_explanation - If the input is a word or two words (in any language)
-    2. text_translation - If the input is more than 2 words and is in a foreign (not {native_language}) language
-    3. tz_conversion - If the input has information about time that doesn't match the current time zone
-    4. math_formula_calculation - If the input has a math formula
+    1. tz_conversion - If the input has information about time that doesn't match the current time zone
+    2. math_formula_calculation - If the input has a math formula
+    3. text_translation - all other cases
 
     Return format: task_name, language_of_query
 
@@ -89,7 +91,7 @@ class AgentBuilder:
         native_language: str = "Русский",
         target_language: str = "English",
         current_location: str = "Larnaca",
-        model_name: str = "gpt-4o",
+        model_name: str = "gpt-4o-mini",
         temperature: float = 0,
     ):
         self.native_language = native_language
@@ -103,23 +105,26 @@ class AgentBuilder:
         def task_router_node(state: AgentState) -> Dict[str, Any]:
             router_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
             task_message = SystemMessage(router_prompt.format(native_language=self.native_language))
-            task_response = router_llm.invoke([task_message, state["messages"][0]])
+            user_message = state["messages"][0]
+            user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
+            task_response = router_llm.invoke([task_message, HumanMessage(content=user_content)])
             task_name, language_of_query = task_response.content.lower().split(",")
             task_name = task_name.strip()
             language_of_query = language_of_query.strip()
 
             return {"task": task_name, "language_of_query": language_of_query}
 
-        def word_explanation_node(state: AgentState) -> Dict[str, Any]:
-            explanation = explain_word(word=state["messages"][0].content,
-                                       native_language=self.native_language)
-            return {"messages": AIMessage(explanation)}
+        # def word_explanation_node(state: AgentState) -> Dict[str, Any]:
+        #     explanation = explain_word(word=state["messages"][0].content,
+        #                                native_language=self.native_language)
+        #     return {"messages": AIMessage(explanation)}
 
         def text_translation_node(state: AgentState) -> Dict[str, Any]:
             translation = translate_text(text=state["messages"][0].content,
-                                        native_language=self.native_language,
-                                        target_language=self.target_language,
-                                        fix_grammar=True)
+                                         native_language=self.native_language,
+                                         target_language=self.target_language,
+                                         language_of_query=state["language_of_query"],
+                                         fix_grammar=True)
             return {"messages": AIMessage(translation)}
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
@@ -147,7 +152,7 @@ class AgentBuilder:
 
         builder.add_node(task_router_node)
 
-        builder.add_node(word_explanation_node)
+        # builder.add_node(word_explanation_node)
         builder.add_node(text_translation_node)
         builder.add_node(tz_conversion_node)
         builder.add_node(math_formula_calculation_node)
@@ -161,7 +166,7 @@ class AgentBuilder:
             "task_router_node",
             lambda x: x["task"],
             {
-                "word_explanation": "word_explanation_node",
+                # "word_explanation": "word_explanation_node",
                 "text_translation": "text_translation_node",
                 "tz_conversion": "tz_conversion_node",
                 "math_formula_calculation": "math_formula_calculation_node"
@@ -173,7 +178,7 @@ class AgentBuilder:
 
         builder.add_edge("math_formula_calculation_node", "math_formula_calculation_tool_node")
 
-        builder.add_edge("word_explanation_node", END)
+        # builder.add_edge("word_explanation_node", END)
         builder.add_edge("text_translation_node", END)
         builder.add_edge("tz_conversion_outro_node", END)
         builder.add_edge("math_formula_calculation_tool_node", END)

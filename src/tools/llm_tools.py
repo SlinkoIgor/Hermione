@@ -7,6 +7,7 @@ def translate_text(
     text: str,
     native_language: str,
     target_language: str,
+    language_of_query: str,
     fix_grammar: bool = False
 ) -> str:
     """Translates text to the specified target language.
@@ -24,26 +25,32 @@ def translate_text(
         translate_text("Bonjour le monde", "English", "German") returns "Hello world"
     """
     system_prompt = dedent(f"""You are a professional translator.
-    First, determine if the text is in {native_language} or not.
-    If the text is in {native_language}, translate it to {target_language}.
-    If the text is NOT in {native_language}, translate it to {native_language}.
+    You are given a text (or word) in {language_of_query} language.
+    If {language_of_query} is {native_language}, then proceed with plan A: translate text (or word) to {target_language}.
+    Otherwise proceed with plan B: translate text (or word) to {native_language}.
     Maintain the original meaning, tone, and style as much as possible.""")
 
     if fix_grammar:
+        print("fix_grammar", native_language)
         system_prompt += dedent(f"""
-            If the text is NOT in {native_language}, then additionally to translation, fix the grammar of the text.
-            FORMAT:
-            =======<translated_text>=======
+            If your plan is B, then additionally to translation, fix the grammar of the input text (in {language_of_query} language).
+            And apply the following format:
 
+            FORMAT:
             [translated_text]
 
             =======<fixed_text>=======
 
             [fixed_text]
-            IF the text is in {native_language}, then only return the translated text, no explanations or other text.
-            Only return the translated text (and fixed text, if applicable), no explanations or other text.""")
+            """)
     else:
-        system_prompt += "Only return the translated text, no explanations or other text."
+        system_prompt += "\nOnly return the translated text (or word), no explanations or other text."
+
+    system_prompt += """
+    If it's a word not a text, then return 1 main translation and 2 possible translations with the following format:
+    main_translation
+    [possible_translation_1, possible_translation_2]
+    """
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
@@ -78,7 +85,7 @@ def explain_word(
         The exaplanation should have no more than 100 words,
         and start with the query word/phrase in that {native_language}."""))
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
     messages = [system_message, HumanMessage(content=word)]
 

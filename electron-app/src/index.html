@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:*">
   <title>Snitch</title>
   <style>
     body {
@@ -38,14 +39,60 @@
       margin-bottom: 15px;
       line-height: 1.5;
     }
+    .debug-panel {
+      margin-top: 30px;
+      padding: 15px;
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #e9ecef;
+    }
+    .debug-panel h2 {
+      margin-top: 0;
+      font-size: 18px;
+      color: #495057;
+    }
+    .debug-button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    .debug-button:hover {
+      background-color: #0069d9;
+    }
+    .debug-output {
+      margin-top: 15px;
+      padding: 10px;
+      background-color: #e9ecef;
+      border-radius: 4px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Snitch</h1>
     <ul>
-      <li>Press <span class="shortcut">Option+H</span> to send the clipboard text to Snitch</li>
+      <li>Press <span class="shortcut">Cmd+Option+H</span> to send the clipboard text to Snitch</li>
     </ul>
+    
+    <div class="debug-panel">
+      <h2>Debug Tools</h2>
+      <button id="checkClipboard" class="debug-button">Check Clipboard</button>
+      <button id="testAPI" class="debug-button">Test API</button>
+      <button id="showProcessInfo" class="debug-button">Show Process Info</button>
+      <button id="clearLogs" class="debug-button">Clear Logs</button>
+      <div id="debugOutput" class="debug-output">Debug output will appear here...</div>
+    </div>
   </div>
+  
+  <script src="renderer.js"></script>
 </body>
 </html> 

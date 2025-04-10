@@ -72,7 +72,7 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  
+
   if (IS_DEV) {
     mainWindow.webContents.openDevTools();
   }
@@ -92,6 +92,14 @@ function createPopupWindow(responseText) {
   if (popupWindow) {
     popupWindow.close();
     popupWindow = null;
+  }
+
+  // Extract content from response object if it's an object
+  let textToDisplay;
+  if (typeof responseText === 'object' && responseText !== null) {
+    textToDisplay = responseText.content || JSON.stringify(responseText);
+  } else {
+    textToDisplay = String(responseText);
   }
 
   // Create a new popup window
@@ -132,13 +140,15 @@ function createPopupWindow(responseText) {
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
           height: 100%;
           color: #333;
+          box-sizing: border-box;
         }
         .content-wrapper {
           height: calc(100% - 30px);
           margin-top: 30px;
           overflow-y: auto;
           overflow-x: hidden;
-          padding: 0 4px;
+          padding: 0 4px 16px 4px;
+          box-sizing: border-box;
         }
         .titlebar {
           position: absolute;
@@ -173,7 +183,7 @@ function createPopupWindow(responseText) {
         }
         .response-text {
           font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
-          font-size: 11px;
+          font-size: 12px;
           line-height: 1.4;
           padding: 0;
           user-select: text;
@@ -200,7 +210,7 @@ function createPopupWindow(responseText) {
           <div class="close-btn" id="closeBtn">×</div>
         </div>
         <div class="content-wrapper">
-          <div class="response-text">${responseText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+          <div class="response-text">${textToDisplay.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
         </div>
       </div>
       <script>
@@ -214,43 +224,13 @@ function createPopupWindow(responseText) {
 
   popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
 
-  // Close the popup when it loses focus and is not being dragged
-  let isMouseOver = false;
-
   // Add event listener for Escape key to close the popup
   popupWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'Escape') {
+    if (input.key === 'Escape' && popupWindow && !popupWindow.isDestroyed()) {
       popupWindow.close();
       popupWindow = null;
       event.preventDefault();
     }
-  });
-
-  popupWindow.on('blur', () => {
-    if (!isMouseOver && popupWindow && !popupWindow.isDestroyed()) {
-      popupWindow.close();
-      popupWindow = null;
-    }
-  });
-
-  if (popupWindow && !popupWindow.isDestroyed()) {
-    popupWindow.webContents.on('dom-ready', () => {
-      if (popupWindow && !popupWindow.isDestroyed()) {
-        popupWindow.webContents.executeJavaScript(`
-          document.addEventListener('mouseenter', () => {
-            window.electronAPI.setMouseOver(true);
-          });
-          document.addEventListener('mouseleave', () => {
-            window.electronAPI.setMouseOver(false);
-          });
-        `);
-      }
-    });
-  }
-
-  // Handle IPC for mouse over state
-  ipcMain.on('set-mouse-over', (event, value) => {
-    isMouseOver = value;
   });
 
   // Handle window close event
@@ -319,7 +299,7 @@ async function startPythonServer() {
 
 // Handle the global shortcut
 function registerShortcut() {
-  globalShortcut.register('Option+H', () => {
+  globalShortcut.register('Command+Option+H', () => {
     if (process.platform === 'darwin') {
       const selectedText = clipboard.readText();
 
@@ -337,12 +317,12 @@ function registerShortcut() {
         .then(responseData => {
           console.log('API response:', responseData);
 
-          let content = responseData;
-          if (typeof responseData === 'string') {
+          let content = responseData.content;
+          if (typeof content === 'string') {
             try {
-              content = JSON.parse(responseData);
+              content = JSON.parse(content);
             } catch (e) {
-              content = responseData;
+              // If it's not valid JSON, keep it as a string
             }
           }
 
@@ -379,7 +359,7 @@ function checkSystemLogs() {
       console.log(stdout);
       
       // If we found relevant logs, show them in a window
-      if (stdout.trim()) {
+      if (stdout && stdout.trim()) {
         const logWindow = new BrowserWindow({
           width: 800,
           height: 400,
@@ -389,6 +369,9 @@ function checkSystemLogs() {
             contextIsolation: false
           }
         });
+        
+        // Convert stdout to string if it's not already
+        const logText = String(stdout);
         
         const htmlContent = `
           <!DOCTYPE html>
@@ -402,7 +385,7 @@ function checkSystemLogs() {
           </head>
           <body>
             <h2>System Logs Related to Quitting</h2>
-            <pre>${stdout.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+            <pre>${logText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
           </body>
           </html>
         `;
@@ -659,4 +642,34 @@ ipcMain.on('kill-python', () => {
 // Handle IPC messages
 ipcMain.on('quit-app', async () => {
   await quitApp();
+});
+
+// Handle process info request
+ipcMain.on('get-process-info', (event) => {
+  const processInfo = {
+    pythonProcess: pythonProcess ? {
+      pid: pythonProcess.pid,
+      killed: pythonProcess.killed,
+      exitCode: pythonProcess.exitCode
+    } : null,
+    mainWindow: mainWindow ? {
+      isDestroyed: mainWindow.isDestroyed(),
+      isVisible: mainWindow.isVisible(),
+      isMinimized: mainWindow.isMinimized()
+    } : null,
+    popupWindow: popupWindow ? {
+      isDestroyed: popupWindow.isDestroyed(),
+      isVisible: popupWindow.isVisible(),
+      isMinimized: popupWindow.isMinimized()
+    } : null,
+    tray: tray ? 'exists' : null,
+    isQuitting: isQuitting,
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      API_PORT: API_PORT,
+      IS_DEV: IS_DEV
+    }
+  };
+  
+  event.reply('process-info-response', processInfo);
 });

@@ -85,4 +85,4 @@ curl -s --request POST \
 Once the server is running, you can access the API documentation at:
 
 - Swagger UI: http://127.0.0.1:8123/docs
-- ReDoc: http://127.0.0.1:8123/redoc 
+- ReDoc: http://127.0.0.1:8123/redoc

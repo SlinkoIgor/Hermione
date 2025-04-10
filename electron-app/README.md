@@ -60,7 +60,7 @@ npm start
 1. Launch the application
 2. The app will start automatically when your computer boots up
 3. Select any text in any application
-4. Press Cmd+Shift+H to send the selected text to the Hermione API
+4. Press Cmd+Option+H to send the selected text to the Hermione API
 5. The response will be processed by the API
 
 ## Requirements

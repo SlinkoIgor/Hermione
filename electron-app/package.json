@@ -4,7 +4,7 @@
   "description": "Electron app for Snitch API",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "NODE_ENV=development electron .",
     "build": "electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
