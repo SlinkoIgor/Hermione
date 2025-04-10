@@ -10,6 +10,12 @@ let mainWindow = null;
 let pythonProcess = null;
 let isQuitting = false;
 let popupWindow = null;
+let lastPopupBounds = {
+  width: 400,
+  height: 200,
+  x: undefined,
+  y: undefined
+};
 
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
@@ -89,10 +95,16 @@ function createPopupWindow(responseText) {
   const display = screen.getDisplayNearestPoint(cursorPosition);
 
   // Close any existing popup
-  if (popupWindow) {
-    popupWindow.close();
-    popupWindow = null;
+  if (popupWindow && !popupWindow.isDestroyed()) {
+    try {
+      // Save the current bounds before closing
+      lastPopupBounds = popupWindow.getBounds();
+      popupWindow.close();
+    } catch (error) {
+      console.error('Error closing existing popup:', error);
+    }
   }
+  popupWindow = null;
 
   // Extract content from response object if it's an object
   let textToDisplay;
@@ -102,141 +114,195 @@ function createPopupWindow(responseText) {
     textToDisplay = String(responseText);
   }
 
+  // Use last position if available, otherwise use cursor position
+  const x = lastPopupBounds.x !== undefined ? lastPopupBounds.x : cursorPosition.x;
+  const y = lastPopupBounds.y !== undefined ? lastPopupBounds.y : cursorPosition.y;
+
+  // Ensure the window will be visible on screen
+  const workArea = display.workArea;
+  const adjustedX = Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - lastPopupBounds.width);
+  const adjustedY = Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - lastPopupBounds.height);
+
   // Create a new popup window
-  popupWindow = new BrowserWindow({
-    width: 400,
-    height: 200,
-    x: cursorPosition.x,
-    y: cursorPosition.y,
-    frame: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    transparent: true,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
-  });
+  try {
+    popupWindow = new BrowserWindow({
+      width: lastPopupBounds.width,
+      height: lastPopupBounds.height,
+      x: adjustedX,
+      y: adjustedY,
+      frame: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      transparent: true,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false
+      }
+    });
 
-  // Load HTML content directly
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        html, body {
-          margin: 0;
-          padding: 0;
-          height: 100%;
-          background: transparent;
-          overflow: hidden;
-        }
-        .container {
-          position: relative;
-          margin: 0;
-          padding: 8px;
-          background-color: rgba(255, 255, 255, 0.95);
-          border-radius: 8px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-          height: 100%;
-          color: #333;
-          box-sizing: border-box;
-        }
-        .content-wrapper {
-          height: calc(100% - 30px);
-          margin-top: 30px;
-          overflow-y: auto;
-          overflow-x: hidden;
-          padding: 0 4px 16px 4px;
-          box-sizing: border-box;
-        }
-        .titlebar {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 30px;
-          background-color: rgba(240, 240, 240, 0.8);
-          border-top-left-radius: 8px;
-          border-top-right-radius: 8px;
-          cursor: move;
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
-          padding-right: 10px;
-          -webkit-app-region: drag;
-          z-index: 1000;
-        }
-        .close-btn {
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background-color: #f1f1f1;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          font-size: 14px;
-          color: #666;
-          margin-left: 5px;
-          -webkit-app-region: no-drag;
-        }
-        .response-text {
-          font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
-          font-size: 12px;
-          line-height: 1.4;
-          padding: 0;
-          user-select: text;
-          white-space: pre-wrap;
-        }
-        ::-webkit-scrollbar {
-          width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: rgba(0, 0, 0, 0.2);
-          border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: rgba(0, 0, 0, 0.3);
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="titlebar" id="titlebar">
-          <div class="close-btn" id="closeBtn">×</div>
+    // Load HTML content directly
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background: transparent;
+            overflow: hidden;
+          }
+          .container {
+            position: relative;
+            margin: 0;
+            padding: 8px;
+            background-color: rgb(255, 255, 255);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+            height: 100%;
+            color: #1a1a1a;
+            box-sizing: border-box;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+          }
+          .content-wrapper {
+            height: calc(100% - 30px);
+            margin-top: 30px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 0 4px 16px 4px;
+            box-sizing: border-box;
+          }
+          .titlebar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background-color: rgb(255, 255, 255);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+            cursor: move;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 10px;
+            -webkit-app-region: drag;
+            z-index: 1000;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+          }
+          .close-btn {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: rgba(0, 0, 0, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            color: #666;
+            margin-left: 5px;
+            -webkit-app-region: no-drag;
+            transition: all 0.2s ease;
+          }
+          .close-btn:hover {
+            background-color: rgba(0, 0, 0, 0.1);
+            color: #333;
+          }
+          .response-text {
+            font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            padding: 0;
+            user-select: text;
+            white-space: pre-wrap;
+            color: #1a1a1a;
+          }
+          ::-webkit-scrollbar {
+            width: 8px;
+          }
+          ::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          ::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+          }
+          ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 0, 0, 0.15);
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="titlebar" id="titlebar">
+            <div class="close-btn" id="closeBtn">×</div>
+          </div>
+          <div class="content-wrapper">
+            <div class="response-text">${textToDisplay.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+          </div>
         </div>
-        <div class="content-wrapper">
-          <div class="response-text">${textToDisplay.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-        </div>
-      </div>
-      <script>
-        document.getElementById('closeBtn').addEventListener('click', () => {
-          window.close();
-        });
-      </script>
-    </body>
-    </html>
-  `;
+        <script>
+          document.getElementById('closeBtn').addEventListener('click', () => {
+            window.close();
+          });
+        </script>
+      </body>
+      </html>
+    `;
 
-  popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+    popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
 
-  // Add event listener for Escape key to close the popup
-  popupWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'Escape' && popupWindow && !popupWindow.isDestroyed()) {
-      popupWindow.close();
+    // Add event listener for Escape key to close the popup
+    popupWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'Escape' && popupWindow && !popupWindow.isDestroyed()) {
+        popupWindow.close();
+        popupWindow = null;
+        event.preventDefault();
+      }
+    });
+
+    // Handle window close event
+    popupWindow.on('closed', () => {
+      try {
+        // Save the bounds before nullifying the window reference
+        if (popupWindow && !popupWindow.isDestroyed()) {
+          lastPopupBounds = popupWindow.getBounds();
+        }
+      } catch (error) {
+        console.error('Error saving window bounds:', error);
+      }
       popupWindow = null;
-      event.preventDefault();
-    }
-  });
+    });
 
-  // Handle window close event
-  popupWindow.on('closed', () => {
-    popupWindow = null;
-  });
+    // Add handler for window resize and move
+    popupWindow.on('resize', () => {
+      try {
+        if (popupWindow && !popupWindow.isDestroyed()) {
+          lastPopupBounds = popupWindow.getBounds();
+        }
+      } catch (error) {
+        console.error('Error saving window bounds on resize:', error);
+      }
+    });
+
+    popupWindow.on('move', () => {
+      try {
+        if (popupWindow && !popupWindow.isDestroyed()) {
+          lastPopupBounds = popupWindow.getBounds();
+        }
+      } catch (error) {
+        console.error('Error saving window bounds on move:', error);
+      }
+    });
+  } catch (error) {
+    console.error('Error creating popup window:', error);
+  }
 }
 
 // Start the Python API server
