@@ -16,8 +16,8 @@ import asyncio
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file in the root directory
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 # Determine if we're in development mode
 IS_DEV = os.getenv('NODE_ENV') == 'development'

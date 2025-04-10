@@ -3,7 +3,8 @@ from dotenv import load_dotenv
 import requests
 from typing import Dict, Any, Optional
 
-load_dotenv()
+# Load environment variables from .env file in the root directory
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env'))
 
 def convert_currency(amount: float, source_currency: str, target_currency: str) -> Dict[str, Any]:
     """Converts an amount from one currency to another using the Exchange Rates API.
