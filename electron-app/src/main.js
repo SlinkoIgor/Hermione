@@ -35,7 +35,7 @@ const apiScriptPath = IS_DEV
 // Create the tray icon
 function createTray() {
   tray = new Tray(path.join(__dirname, 'assets', 'icon.png'));
-  tray.setToolTip('Snitch');
+  tray.setToolTip('CheatKey');
 
   const contextMenu = Menu.buildFromTemplate([
     {

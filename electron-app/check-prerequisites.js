@@ -2,7 +2,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('Checking prerequisites for Snitch Electron App...');
+console.log('Checking prerequisites for CheatKey Electron App...');
 
 // Check if Node.js is installed
 try {

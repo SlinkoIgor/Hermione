@@ -1,7 +1,7 @@
 {
-  "name": "snitch-electron",
+  "name": "cheatkey-electron",
   "version": "1.0.0",
-  "description": "Electron app for Snitch API",
+  "description": "Electron app for CheatKey API",
   "main": "src/main.js",
   "scripts": {
     "start": "NODE_ENV=development electron .",
@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/snitch.git"
+    "url": "https://github.com/yourusername/cheatkey.git"
   },
   "author": "",
   "license": "ISC",
@@ -23,8 +23,8 @@
     "node-fetch": "^2.7.0"
   },
   "build": {
-    "appId": "com.snitch.app",
-    "productName": "Snitch",
+    "appId": "com.cheatkey.app",
+    "productName": "CheatKey",
     "mac": {
       "category": "public.app-category.productivity",
       "target": "dmg",
