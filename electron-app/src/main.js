@@ -89,22 +89,10 @@ function createWindow() {
 }
 
 // Create a popup window near the cursor
-function createPopupWindow(responseText) {
+function createPopupWindow(responseText, isLoading = false) {
   // Get the cursor position
   const cursorPosition = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPosition);
-
-  // Close any existing popup
-  if (popupWindow && !popupWindow.isDestroyed()) {
-    try {
-      // Save the current bounds before closing
-      lastPopupBounds = popupWindow.getBounds();
-      popupWindow.close();
-    } catch (error) {
-      console.error('Error closing existing popup:', error);
-    }
-  }
-  popupWindow = null;
 
   // Extract content from response object if it's an object
   let textToDisplay;
@@ -114,34 +102,9 @@ function createPopupWindow(responseText) {
     textToDisplay = String(responseText);
   }
 
-  // Use last position if available, otherwise use cursor position
-  const x = lastPopupBounds.x !== undefined ? lastPopupBounds.x : cursorPosition.x;
-  const y = lastPopupBounds.y !== undefined ? lastPopupBounds.y : cursorPosition.y;
-
-  // Ensure the window will be visible on screen
-  const workArea = display.workArea;
-  const adjustedX = Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - lastPopupBounds.width);
-  const adjustedY = Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - lastPopupBounds.height);
-
-  // Create a new popup window
-  try {
-    popupWindow = new BrowserWindow({
-      width: lastPopupBounds.width,
-      height: lastPopupBounds.height,
-      x: adjustedX,
-      y: adjustedY,
-      frame: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      transparent: true,
-      webPreferences: {
-        nodeIntegration: true,
-        contextIsolation: false
-      }
-    });
-
-    // Load HTML content directly
-    const htmlContent = `
+  // Function to generate HTML content
+  const generateHtmlContent = (text, loading) => {
+    return `
       <!DOCTYPE html>
       <html>
       <head>
@@ -223,6 +186,24 @@ function createPopupWindow(responseText) {
             white-space: pre-wrap;
             color: #1a1a1a;
           }
+          .loading-dots {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            font-size: 24px;
+            color: #666;
+          }
+          .dot {
+            opacity: 0;
+            animation: fadeInOut 1s infinite;
+          }
+          .dot:nth-child(2) { animation-delay: 0.333s; }
+          .dot:nth-child(3) { animation-delay: 0.666s; }
+          @keyframes fadeInOut {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 1; }
+          }
           ::-webkit-scrollbar {
             width: 8px;
           }
@@ -243,19 +224,79 @@ function createPopupWindow(responseText) {
           <div class="titlebar" id="titlebar">
             <div class="close-btn" id="closeBtn">×</div>
           </div>
-          <div class="content-wrapper">
-            <div class="response-text">${textToDisplay.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+          <div class="content-wrapper" id="content">
+            ${loading ? 
+              '<div class="loading-dots"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>' :
+              `<div class="response-text">${text}</div>`
+            }
           </div>
         </div>
         <script>
+          const { ipcRenderer } = require('electron');
+          
           document.getElementById('closeBtn').addEventListener('click', () => {
             window.close();
+          });
+          
+          // Listen for content update messages
+          ipcRenderer.on('update-content', (event, content) => {
+            const contentWrapper = document.getElementById('content');
+            contentWrapper.innerHTML = \`<div class="response-text">\${content}</div>\`;
           });
         </script>
       </body>
       </html>
     `;
+  };
 
+  // If we already have a popup window and it's not destroyed, update its content
+  if (popupWindow && !popupWindow.isDestroyed()) {
+    try {
+      if (isLoading) {
+        // If we're showing loading state, we need to reload the entire window
+        const htmlContent = generateHtmlContent('', true);
+        popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+      } else {
+        // If we're updating with content, just send an IPC message to update the content
+        popupWindow.webContents.send('update-content', textToDisplay);
+      }
+      return;
+    } catch (error) {
+      console.error('Error updating existing popup:', error);
+      // If update fails, close the existing window and create a new one
+      popupWindow.close();
+      popupWindow = null;
+    }
+  }
+
+  // Use last position if available, otherwise use cursor position
+  const x = lastPopupBounds.x !== undefined ? lastPopupBounds.x : cursorPosition.x;
+  const y = lastPopupBounds.y !== undefined ? lastPopupBounds.y : cursorPosition.y;
+
+  // Ensure the window will be visible on screen
+  const workArea = display.workArea;
+  const adjustedX = Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - lastPopupBounds.width);
+  const adjustedY = Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - lastPopupBounds.height);
+
+  // Create a new popup window
+  try {
+    popupWindow = new BrowserWindow({
+      width: lastPopupBounds.width,
+      height: lastPopupBounds.height,
+      x: adjustedX,
+      y: adjustedY,
+      frame: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      transparent: true,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false
+      }
+    });
+
+    // Load HTML content directly
+    const htmlContent = generateHtmlContent(textToDisplay, isLoading);
     popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
 
     // Add event listener for Escape key to close the popup
@@ -370,6 +411,9 @@ function registerShortcut() {
       const selectedText = clipboard.readText();
 
       if (selectedText) {
+        // Show loading popup immediately
+        createPopupWindow('', true);
+
         fetch(`http://${API_HOST}:${API_PORT}/runs`, {
           method: 'POST',
           headers: {
@@ -392,7 +436,8 @@ function registerShortcut() {
             }
           }
 
-          createPopupWindow(content);
+          // Update the existing popup with actual content
+          createPopupWindow(content, false);
 
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('response-ready', content);
@@ -400,6 +445,8 @@ function registerShortcut() {
         })
         .catch(error => {
           console.error('Error calling API:', error);
+          // Show error in popup
+          createPopupWindow('Error: Failed to get response from API', false);
         });
       }
     }
