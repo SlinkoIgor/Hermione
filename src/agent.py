@@ -11,6 +11,9 @@ from textwrap import dedent
 from typing import Dict, Any, List, Callable
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 time_zone_prompt = dedent("""
@@ -110,6 +113,7 @@ class AgentState(MessagesState):
     translated_text: str
     fixed_text: str
     summarized_text: str
+    tool_warning: bool = False
 
 
 class AgentBuilder:
@@ -134,17 +138,17 @@ class AgentBuilder:
         tools: List[BaseTool],
         system_message: SystemMessage,
         user_message: HumanMessage,
-        parallel_tool_calls: bool = False,
         check_tool_calls: bool = True
     ) -> Dict[str, Any]:
         llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
-            tools, parallel_tool_calls=parallel_tool_calls)
+            tools, parallel_tool_calls=False)
         response = llm.invoke([system_message, user_message])
 
         if check_tool_calls and not any(hasattr(msg, 'tool_calls') and msg.tool_calls for msg in [response]):
-            response.content = "!!!TOOL WASN'T CALLED!!!\n" + response.content
+            logger.warning("Tool wasn't called in the response")
+            return {"messages": [system_message, response], "tool_warning": True}
 
-        return {"messages": [system_message, response]}
+        return {"messages": [system_message, response], "tool_warning": False}
 
     def build(self) -> Any:
 

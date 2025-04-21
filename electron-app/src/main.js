@@ -436,6 +436,10 @@ function registerShortcut() {
             }
           }
 
+          if (responseData.tool_warning) {
+            content = "!!!TOOL WASN'T CALLED!!!\n" + content;
+          }
+
           // Update the existing popup with actual content
           createPopupWindow(content, false);
 

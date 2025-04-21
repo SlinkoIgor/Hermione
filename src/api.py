@@ -144,8 +144,9 @@ async def run(request: SimpleRequest):
         human_message = HumanMessage(content=user_message)
         result = agent.invoke({"messages": [human_message]})
         response_message = result["messages"][-1]
+        tool_warning = result.get("tool_warning", False)
         logger.info(f"Request processed successfully, response: {response_message}")
-        return {"content": response_message.content}
+        return {"content": response_message.content, "tool_warning": tool_warning}
     except Exception as e:
         logger.error(f"Error in run: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
