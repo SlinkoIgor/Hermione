@@ -239,12 +239,35 @@ function createPopupWindow(responseText, isLoading = false) {
     // Handle math result and script together
     if (output.math_result || output.math_script) {
       const mathIndex = tabs.length;
-      tabs.push(`<div class="tab ${mathIndex === activeTab ? 'active' : ''}" data-tab="${mathIndex}">Math</div>`);
+      tabs.push(`<div class="tab ${mathIndex === activeTab ? 'active' : ''}" data-tab="${mathIndex}">Math Result</div>`);
       tabContents.push(`<div class="tab-content ${mathIndex === activeTab ? 'active' : ''}" id="tab-${mathIndex}">${output.math_result}</div>`);
+      
+      if (output.math_script) {
+        const scriptIndex = tabs.length;
+        tabs.push(`<div class="tab ${scriptIndex === activeTab ? 'active' : ''}" data-tab="${scriptIndex}">Math Script</div>`);
+        tabContents.push(`<div class="tab-content ${scriptIndex === activeTab ? 'active' : ''}" id="tab-${scriptIndex}">${output.math_script}</div>`);
+      }
     }
 
     console.log('Generated tabs:', tabs);
     console.log('Generated tab contents:', tabContents);
+
+    // Ensure at least one tab is active
+    if (tabs.length > 0 && !tabs.some(tab => tab.includes('active'))) {
+      tabs[0] = tabs[0].replace('class="tab"', 'class="tab active"');
+      tabContents[0] = tabContents[0].replace('class="tab-content"', 'class="tab-content active"');
+    }
+
+    // Reset active tab for all tabs and tab contents
+    tabs.forEach((tab, index) => {
+      if (index === 0) {
+        tabs[index] = tab.replace('class="tab"', 'class="tab active"');
+        tabContents[index] = tabContents[index].replace('class="tab-content"', 'class="tab-content active"');
+      } else {
+        tabs[index] = tab.replace('class="tab active"', 'class="tab"');
+        tabContents[index] = tabContents[index].replace('class="tab-content active"', 'class="tab-content"');
+      }
+    });
 
     return `
       <!DOCTYPE html>

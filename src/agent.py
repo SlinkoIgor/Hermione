@@ -3,12 +3,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import MessagesState
 from langgraph.graph import START, END, StateGraph
 from langgraph.prebuilt import ToolNode
-from src.tools.function_calculator import calculate_formula, format_output
+from src.tools.function_calculator import calculate_formula
 from src.tools.tz_convertor import convert_time
 from src.tools.llm_tools import translate_text, fix_text, text_summarization
 from src.tools.currency_converter import convert_currency
 from textwrap import dedent
-from typing import Dict, Any, List, Callable
+from typing import Dict, Any, List
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 import logging
@@ -284,7 +284,6 @@ class AgentBuilder:
 
         builder.add_node(ToolNode(tools=[convert_time], name="tz_conversion_tool_node"))
         builder.add_node(tz_conversion_outro_node)
-        builder.add_node(ToolNode(tools=[calculate_formula], name="math_formula_calculation_tool_node"))
         builder.add_node(ToolNode(tools=[convert_currency], name="currency_conversion_tool_node"))
 
         builder.add_edge(START, "task_router_node")
@@ -319,8 +318,7 @@ class AgentBuilder:
         builder.add_edge("tz_conversion_node", "tz_conversion_tool_node")
         builder.add_edge("tz_conversion_tool_node", "tz_conversion_outro_node")
 
-        builder.add_edge("math_formula_calculation_node", "math_formula_calculation_tool_node")
-        builder.add_edge("math_formula_calculation_tool_node", END)
+        builder.add_edge("math_formula_calculation_node", END)
 
         builder.add_edge("currency_conversion_node", "currency_conversion_tool_node")
         builder.add_edge("currency_conversion_tool_node", "currency_conversion_outro_node")

@@ -24,9 +24,6 @@ def clean_user_script(user_script: str) -> str:
 
     return '\n'.join(cleaned_lines)
 
-def format_output(script: str, result: Any) -> str:
-    return f"=======<b>result</b>=======\n{result}\n\n=====<b>script</b>======\n{script}"
-
 class TimeoutException(Exception):
     pass
 
