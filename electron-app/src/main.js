@@ -448,6 +448,16 @@ function createPopupWindow(responseText, isLoading = false) {
                 document.querySelector('.tab[data-tab="' + newTabIndex + '"]').click();
               }
             });
+
+            // Handle copy event to ensure plain text copying
+            document.addEventListener('copy', function(e) {
+              const selection = window.getSelection();
+              const selectedText = selection.toString();
+              if (selectedText) {
+                e.preventDefault();
+                e.clipboardData.setData('text/plain', selectedText);
+              }
+            });
           });
         </script>
       </body>

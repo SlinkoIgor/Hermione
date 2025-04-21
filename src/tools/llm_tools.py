@@ -55,6 +55,7 @@ def fix_text(
     system_prompt = dedent(f"""You are a professional grammar editor.
     Fix any grammar, spelling, or punctuation errors in the text.
     Maintain the original meaning, tone, and style as much as possible.
+    For every word where you make a change put it in <b>tags</b>.
     Only return the fixed text, no explanations or other text.""")
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
