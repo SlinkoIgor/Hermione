@@ -210,13 +210,16 @@ function createPopupWindow(responseText, isLoading = false) {
 
     console.log('Generating HTML for response:', JSON.stringify(response));
 
-    const sections = [];
     const output = response.output || {};
-
     console.log('Output dictionary:', JSON.stringify(output));
 
-    // Add a section for each key in the output dictionary
-    Object.entries(output).forEach(([key, value]) => {
+    // Create tabs for each section
+    const tabs = [];
+    const tabContents = [];
+    let activeTab = 0;
+
+    // Add a tab for each key in the output dictionary
+    Object.entries(output).forEach(([key, value], index) => {
       console.log(`Processing key: ${key}, value: ${value}`);
 
       if (key === 'math_result' || key === 'math_script') {
@@ -229,15 +232,19 @@ function createPopupWindow(responseText, isLoading = false) {
         word.charAt(0).toUpperCase() + word.slice(1)
       ).join(' ');
 
-      sections.push(`<div class="section"><b>${displayKey}</b><div class="content">${value}</div></div>`);
+      tabs.push(`<div class="tab ${index === activeTab ? 'active' : ''}" data-tab="${index}">${displayKey}</div>`);
+      tabContents.push(`<div class="tab-content ${index === activeTab ? 'active' : ''}" id="tab-${index}">${value}</div>`);
     });
 
     // Handle math result and script together
     if (output.math_result || output.math_script) {
-      sections.push(`<div class="section"><b>Math</b><div class="content">${output.math_result}</div><div class="script">${output.math_script}</div></div>`);
+      const mathIndex = tabs.length;
+      tabs.push(`<div class="tab ${mathIndex === activeTab ? 'active' : ''}" data-tab="${mathIndex}">Math</div>`);
+      tabContents.push(`<div class="tab-content ${mathIndex === activeTab ? 'active' : ''}" id="tab-${mathIndex}">${output.math_result}</div>`);
     }
 
-    console.log('Generated sections:', sections);
+    console.log('Generated tabs:', tabs);
+    console.log('Generated tab contents:', tabContents);
 
     return `
       <!DOCTYPE html>
@@ -250,6 +257,7 @@ function createPopupWindow(responseText, isLoading = false) {
             height: 100%;
             background: transparent;
             overflow: hidden;
+            font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
           }
           .container {
             position: relative;
@@ -287,11 +295,52 @@ function createPopupWindow(responseText, isLoading = false) {
             cursor: move;
             display: flex;
             align-items: center;
-            justify-content: flex-end;
-            padding-right: 10px;
-            -webkit-app-region: drag;
+            justify-content: space-between;
+            padding: 0 10px;
             z-index: 1000;
             border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+          }
+          .drag-area {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            -webkit-app-region: drag;
+            z-index: 1001;
+          }
+          .tabs-container {
+            display: flex;
+            align-items: center;
+            overflow-x: auto;
+            flex-grow: 1;
+            margin-right: 10px;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            position: relative;
+            z-index: 1002;
+            pointer-events: auto;
+          }
+          .tabs-container::-webkit-scrollbar {
+            display: none;
+          }
+          .tab {
+            padding: 4px 10px;
+            margin-right: 4px;
+            background-color: rgba(0, 0, 0, 0.05);
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+            -webkit-app-region: no-drag;
+          }
+          .tab:hover {
+            background-color: rgba(0, 0, 0, 0.1);
+          }
+          .tab.active {
+            background-color: rgba(0, 0, 0, 0.15);
+            font-weight: bold;
           }
           .close-btn {
             width: 20px;
@@ -304,7 +353,6 @@ function createPopupWindow(responseText, isLoading = false) {
             cursor: pointer;
             font-size: 14px;
             color: #666;
-            margin-left: 5px;
             -webkit-app-region: no-drag;
             transition: all 0.2s ease;
           }
@@ -312,37 +360,17 @@ function createPopupWindow(responseText, isLoading = false) {
             background-color: rgba(0, 0, 0, 0.1);
             color: #333;
           }
-          .section {
-            margin-bottom: 16px;
+          .tab-content {
+            display: none;
             padding: 8px;
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-          }
-          .section b {
-            display: block;
-            margin-bottom: 8px;
-            color: #666;
-            font-size: 12px;
-            text-transform: uppercase;
-            font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
-          }
-          .content {
-            font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+            background: transparent;
             font-size: 12px;
             line-height: 1.4;
             white-space: pre-wrap;
             color: #1a1a1a;
           }
-          .script {
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid rgba(0, 0, 0, 0.06);
-            font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
-            font-size: 11px;
-            line-height: 1.4;
-            white-space: pre-wrap;
-            color: #666;
+          .tab-content.active {
+            display: block;
           }
           ::-webkit-scrollbar {
             width: 8px;
@@ -362,12 +390,67 @@ function createPopupWindow(responseText, isLoading = false) {
       <body>
         <div class="container">
           <div class="titlebar" id="titlebar">
+            <div class="drag-area"></div>
+            <div class="tabs-container" id="tabsContainer">
+              ${tabs.join('\n')}
+            </div>
             <div class="close-btn" id="closeBtn">×</div>
           </div>
           <div class="content-wrapper" id="content">
-            ${sections.join('\n')}
+            ${tabContents.join('\n')}
           </div>
         </div>
+        <script>
+          document.addEventListener('DOMContentLoaded', function() {
+            // Tab switching functionality
+            const tabs = document.querySelectorAll('.tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabs.forEach(function(tab) {
+              tab.addEventListener('click', function() {
+                const tabIndex = tab.getAttribute('data-tab');
+                
+                // Update active tab
+                tabs.forEach(function(t) {
+                  t.classList.remove('active');
+                });
+                tab.classList.add('active');
+                
+                // Update active content
+                tabContents.forEach(function(content) {
+                  content.classList.remove('active');
+                });
+                document.getElementById('tab-' + tabIndex).classList.add('active');
+              });
+            });
+            
+            // Close button functionality
+            document.getElementById('closeBtn').addEventListener('click', function() {
+              window.close();
+            });
+            
+            // Keyboard navigation
+            document.addEventListener('keydown', function(e) {
+              if (e.key === 'Escape') {
+                window.close();
+              } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                const activeTab = document.querySelector('.tab.active');
+                const activeTabIndex = parseInt(activeTab.getAttribute('data-tab'));
+                const tabsCount = tabs.length;
+                
+                let newTabIndex;
+                if (e.key === 'ArrowLeft') {
+                  newTabIndex = (activeTabIndex - 1 + tabsCount) % tabsCount;
+                } else {
+                  newTabIndex = (activeTabIndex + 1) % tabsCount;
+                }
+                
+                // Simulate click on the new tab
+                document.querySelector('.tab[data-tab="' + newTabIndex + '"]').click();
+              }
+            });
+          });
+        </script>
       </body>
       </html>
     `;
