@@ -113,7 +113,7 @@ function createPopupWindow(responseText, isLoading = false) {
               position: relative;
               margin: 0;
               padding: 8px;
-              background-color: rgb(255, 255, 255);
+              background-color: #f5f5f5;
               backdrop-filter: blur(16px);
               -webkit-backdrop-filter: blur(16px);
               border-radius: 12px;
@@ -255,7 +255,7 @@ function createPopupWindow(responseText, isLoading = false) {
             position: relative;
             margin: 0;
             padding: 8px;
-            background-color: rgb(255, 255, 255);
+            background-color: #f5f5f5;
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             border-radius: 12px;
@@ -315,8 +315,9 @@ function createPopupWindow(responseText, isLoading = false) {
           .section {
             margin-bottom: 16px;
             padding: 8px;
-            background: rgba(0, 0, 0, 0.02);
+            background: rgba(255, 255, 255, 0.9);
             border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
           }
           .section b {
             display: block;
@@ -324,6 +325,7 @@ function createPopupWindow(responseText, isLoading = false) {
             color: #666;
             font-size: 12px;
             text-transform: uppercase;
+            font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
           }
           .content {
             font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
