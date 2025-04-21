@@ -8,8 +8,9 @@ from src.tools.tz_convertor import convert_time
 from src.tools.llm_tools import translate_text, fix_text, text_summarization
 from src.tools.currency_converter import convert_currency
 from textwrap import dedent
-from typing import Dict, Any
+from typing import Dict, Any, List, Callable
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.tools import BaseTool
 
 
 time_zone_prompt = dedent("""
@@ -128,6 +129,23 @@ class AgentBuilder:
         self.model_name = model_name
         self.temperature = temperature
 
+    def invoke_llm_with_tools(
+        self,
+        tools: List[BaseTool],
+        system_message: SystemMessage,
+        user_message: HumanMessage,
+        parallel_tool_calls: bool = False,
+        check_tool_calls: bool = True
+    ) -> Dict[str, Any]:
+        llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
+            tools, parallel_tool_calls=parallel_tool_calls)
+        response = llm.invoke([system_message, user_message])
+
+        if check_tool_calls and not any(hasattr(msg, 'tool_calls') and msg.tool_calls for msg in [response]):
+            response.content = "!!!TOOL WASN'T CALLED!!!\n" + response.content
+
+        return {"messages": [system_message, response]}
+
     def build(self) -> Any:
 
         def task_router_node(state: AgentState) -> Dict[str, Any]:
@@ -179,27 +197,28 @@ class AgentBuilder:
             output_parts = []
 
             if summarized_text:
-                output_parts.append(f"=======<tl;dr>=======\n\n{summarized_text}")
+                output_parts.append(f"=======<b>tl;dr</b>=======\n\n{summarized_text}")
 
-            output_parts.append(f"=======<translation>=======\n\n{translated_text}")
-            output_parts.append(f"=======<fixed_text>=======\n\n{fixed_text}")
+            output_parts.append(f"=======<b>translation</b>=======\n\n{translated_text}")
+            output_parts.append(f"=======<b>fixed_text</b>=======\n\n{fixed_text}")
 
             output_text = "\n\n".join(output_parts)
 
             return {"messages": AIMessage(output_text)}
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
-            tz_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
-                [convert_time], parallel_tool_calls=False)
             system_msg = SystemMessage(
                 time_zone_prompt.format(current_location=self.current_location))
-            response = tz_conversion_llm.invoke([system_msg, state["messages"][0]])
-            return {"messages": [system_msg, response]}
+            return self.invoke_llm_with_tools(
+                tools=[convert_time],
+                system_message=system_msg,
+                user_message=state["messages"][0]
+            )
 
         def tz_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
             tz_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
             response = tz_conversion_llm.invoke(state["messages"])
-            return {"messages": AIMessage(f'=======<tz_conversion>=======\n\n{response.content}')}
+            return {"messages": AIMessage(f'=======<b>tz_conversion</b>=======\n\n{response.content}')}
 
         def math_formula_calculation_node(state: AgentState) -> Dict[str, Any]:
             math_formula_calculation_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
@@ -209,12 +228,13 @@ class AgentBuilder:
             return {"messages": AIMessage(formatted_result)}
 
         def currency_conversion_node(state: AgentState) -> Dict[str, Any]:
-            currency_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature).bind_tools(
-                [convert_currency], parallel_tool_calls=False)
             system_msg = SystemMessage(
                 currency_conversion_prompt.format(native_currency=self.native_currency))
-            response = currency_conversion_llm.invoke([system_msg, state["messages"][0]])
-            return {"messages": [system_msg, response]}
+            return self.invoke_llm_with_tools(
+                tools=[convert_currency],
+                system_message=system_msg,
+                user_message=state["messages"][0]
+            )
 
         def currency_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
             # Get the last message which should contain the tool response
@@ -244,7 +264,7 @@ class AgentBuilder:
             else:
                 formatted_response = "Error: Could not extract currency conversion result"
 
-            return {"messages": AIMessage(f'=======<convert_currency>=======\n\n{formatted_response}')}
+            return {"messages": AIMessage(f'=======<b>convert_currency</b>=======\n\n{formatted_response}')}
 
         builder = StateGraph(AgentState)
 
