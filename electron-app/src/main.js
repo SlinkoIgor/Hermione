@@ -221,33 +221,9 @@ function createPopupWindow(responseText, isLoading = false) {
     // Add a tab for each key in the output dictionary
     Object.entries(output).forEach(([key, value], index) => {
       console.log(`Processing key: ${key}, value: ${value}`);
-
-      if (key === 'math_result' || key === 'math_script') {
-        // Skip these as they're handled together
-        return;
-      }
-
-      // Format the key for display (e.g., "tz_conversion" -> "TZ Conversion")
-      const displayKey = key.split('_').map(word =>
-        word.charAt(0).toUpperCase() + word.slice(1)
-      ).join(' ');
-
-      tabs.push(`<div class="tab ${index === activeTab ? 'active' : ''}" data-tab="${index}">${displayKey}</div>`);
+      tabs.push(`<div class="tab ${index === activeTab ? 'active' : ''}" data-tab="${index}">${key}</div>`);
       tabContents.push(`<div class="tab-content ${index === activeTab ? 'active' : ''}" id="tab-${index}">${value}</div>`);
     });
-
-    // Handle math result and script together
-    if (output.math_result || output.math_script) {
-      const mathIndex = tabs.length;
-      tabs.push(`<div class="tab ${mathIndex === activeTab ? 'active' : ''}" data-tab="${mathIndex}">Math Result</div>`);
-      tabContents.push(`<div class="tab-content ${mathIndex === activeTab ? 'active' : ''}" id="tab-${mathIndex}">${output.math_result}</div>`);
-      
-      if (output.math_script) {
-        const scriptIndex = tabs.length;
-        tabs.push(`<div class="tab ${scriptIndex === activeTab ? 'active' : ''}" data-tab="${scriptIndex}">Math Script</div>`);
-        tabContents.push(`<div class="tab-content ${scriptIndex === activeTab ? 'active' : ''}" id="tab-${scriptIndex}">${output.math_script}</div>`);
-      }
-    }
 
     console.log('Generated tabs:', tabs);
     console.log('Generated tab contents:', tabContents);
