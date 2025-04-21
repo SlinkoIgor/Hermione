@@ -114,6 +114,7 @@ class AgentState(MessagesState):
     fixed_text: str
     summarized_text: str
     tool_warning: bool = False
+    output: Dict[str, str] = {}
 
 
 class AgentBuilder:
@@ -198,17 +199,14 @@ class AgentBuilder:
             fixed_text = state.get("fixed_text", "")
             summarized_text = state.get("summarized_text", "")
 
-            output_parts = []
-
+            output = {}
             if summarized_text:
-                output_parts.append(f"=======<b>tl;dr</b>=======\n\n{summarized_text}")
+                output["tldr"] = summarized_text
 
-            output_parts.append(f"=======<b>translation</b>=======\n\n{translated_text}")
-            output_parts.append(f"=======<b>fixed_text</b>=======\n\n{fixed_text}")
+            output["translation"] = translated_text
+            output["fixed"] = fixed_text
 
-            output_text = "\n\n".join(output_parts)
-
-            return {"messages": AIMessage(output_text)}
+            return {"output": output}
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
             system_msg = SystemMessage(
@@ -222,14 +220,18 @@ class AgentBuilder:
         def tz_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
             tz_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
             response = tz_conversion_llm.invoke(state["messages"])
-            return {"messages": AIMessage(f'=======<b>tz_conversion</b>=======\n\n{response.content}')}
+            return {"output": {"tz_conversion": response.content}}
 
         def math_formula_calculation_node(state: AgentState) -> Dict[str, Any]:
             math_formula_calculation_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
             response = math_formula_calculation_llm.invoke([SystemMessage(math_formula_calculation_prompt), state["messages"][0]])
             calculation_result = calculate_formula(response.content)
-            formatted_result = format_output(response.content, calculation_result)
-            return {"messages": AIMessage(formatted_result)}
+            return {
+                "output": {
+                    "math_result": str(calculation_result),
+                    "math_script": response.content
+                }
+            }
 
         def currency_conversion_node(state: AgentState) -> Dict[str, Any]:
             system_msg = SystemMessage(
@@ -241,13 +243,11 @@ class AgentBuilder:
             )
 
         def currency_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
-            # Get the last message which should contain the tool response
             last_message = state["messages"][-1]
+            output = {}
 
-            # Extract the result from the tool response
             if hasattr(last_message, 'content'):
                 try:
-                    # Parse the string representation of the result
                     import ast
                     result_dict = ast.literal_eval(last_message.content)
 
@@ -256,19 +256,18 @@ class AgentBuilder:
                     source_currency = result_dict.get('source_currency', '')
                     target_currency = result_dict.get('target_currency', '')
 
-                    # Check if we have a valid result
                     if result is not None:
-                        # Format the response
-                        formatted_response = f"{amount} {source_currency} == {result:.2f} {target_currency}"
+                        output["currency_conversion"] = f"{amount} {source_currency} == {result:.2f} {target_currency}"
                     else:
                         error_msg = result_dict.get('error', 'Unknown error')
-                        formatted_response = f"Error: {error_msg}"
+                        output["currency_conversion"] = f"Error: {error_msg}"
+                        state["output"]["currency_conversion"] = f"Error: {error_msg}"
                 except (ValueError, SyntaxError):
-                    formatted_response = "Error: Could not parse currency conversion result"
+                    state["output"]["currency_conversion"] = "Error: Could not parse currency conversion result"
             else:
-                formatted_response = "Error: Could not extract currency conversion result"
+                state["output"]["currency_conversion"] = "Error: Could not extract currency conversion result"
 
-            return {"messages": AIMessage(f'=======<b>convert_currency</b>=======\n\n{formatted_response}')}
+            return {"messages": AIMessage("")}
 
         builder = StateGraph(AgentState)
 

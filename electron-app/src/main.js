@@ -94,16 +94,151 @@ function createPopupWindow(responseText, isLoading = false) {
   const cursorPosition = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPosition);
 
-  // Extract content from response object if it's an object
-  let textToDisplay;
-  if (typeof responseText === 'object' && responseText !== null) {
-    textToDisplay = responseText.content || JSON.stringify(responseText);
-  } else {
-    textToDisplay = String(responseText);
-  }
-
   // Function to generate HTML content
-  const generateHtmlContent = (text, loading) => {
+  const generateHtmlContent = (response, loading) => {
+    if (loading) {
+      return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            html, body {
+              margin: 0;
+              padding: 0;
+              height: 100%;
+              background: transparent;
+              overflow: hidden;
+            }
+            .container {
+              position: relative;
+              margin: 0;
+              padding: 8px;
+              background-color: rgb(255, 255, 255);
+              backdrop-filter: blur(16px);
+              -webkit-backdrop-filter: blur(16px);
+              border-radius: 12px;
+              box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+              height: 100%;
+              color: #1a1a1a;
+              box-sizing: border-box;
+              border: 1px solid rgba(0, 0, 0, 0.06);
+            }
+            .content-wrapper {
+              height: calc(100% - 30px);
+              margin-top: 30px;
+              overflow-y: auto;
+              overflow-x: hidden;
+              padding: 0 4px 16px 4px;
+              box-sizing: border-box;
+            }
+            .titlebar {
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              height: 30px;
+              background-color: rgb(255, 255, 255);
+              backdrop-filter: blur(16px);
+              -webkit-backdrop-filter: blur(16px);
+              border-top-left-radius: 12px;
+              border-top-right-radius: 12px;
+              cursor: move;
+              display: flex;
+              align-items: center;
+              justify-content: flex-end;
+              padding-right: 10px;
+              -webkit-app-region: drag;
+              z-index: 1000;
+              border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+            }
+            .close-btn {
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              background-color: rgba(0, 0, 0, 0.05);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              cursor: pointer;
+              font-size: 14px;
+              color: #666;
+              margin-left: 5px;
+              -webkit-app-region: no-drag;
+              transition: all 0.2s ease;
+            }
+            .close-btn:hover {
+              background-color: rgba(0, 0, 0, 0.1);
+              color: #333;
+            }
+            .loading-dots {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              height: 100%;
+              font-size: 24px;
+              color: #666;
+            }
+            .dot {
+              opacity: 0;
+              animation: fadeInOut 1s infinite;
+            }
+            .dot:nth-child(2) { animation-delay: 0.333s; }
+            .dot:nth-child(3) { animation-delay: 0.666s; }
+            @keyframes fadeInOut {
+              0%, 100% { opacity: 0; }
+              50% { opacity: 1; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="titlebar" id="titlebar">
+              <div class="close-btn" id="closeBtn">×</div>
+            </div>
+            <div class="content-wrapper" id="content">
+              <div class="loading-dots">
+                <span class="dot">.</span>
+                <span class="dot">.</span>
+                <span class="dot">.</span>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+    }
+
+    console.log('Generating HTML for response:', JSON.stringify(response));
+
+    const sections = [];
+    const output = response.output || {};
+
+    console.log('Output dictionary:', JSON.stringify(output));
+
+    // Add a section for each key in the output dictionary
+    Object.entries(output).forEach(([key, value]) => {
+      console.log(`Processing key: ${key}, value: ${value}`);
+
+      if (key === 'math_result' || key === 'math_script') {
+        // Skip these as they're handled together
+        return;
+      }
+
+      // Format the key for display (e.g., "tz_conversion" -> "TZ Conversion")
+      const displayKey = key.split('_').map(word =>
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ');
+
+      sections.push(`<div class="section"><b>${displayKey}</b><div class="content">${value}</div></div>`);
+    });
+
+    // Handle math result and script together
+    if (output.math_result || output.math_script) {
+      sections.push(`<div class="section"><b>Math</b><div class="content">${output.math_result}</div><div class="script">${output.math_script}</div></div>`);
+    }
+
+    console.log('Generated sections:', sections);
+
     return `
       <!DOCTYPE html>
       <html>
@@ -177,32 +312,35 @@ function createPopupWindow(responseText, isLoading = false) {
             background-color: rgba(0, 0, 0, 0.1);
             color: #333;
           }
-          .response-text {
+          .section {
+            margin-bottom: 16px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.02);
+            border-radius: 8px;
+          }
+          .section b {
+            display: block;
+            margin-bottom: 8px;
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+          }
+          .content {
             font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
             font-size: 12px;
             line-height: 1.4;
-            padding: 0;
-            user-select: text;
             white-space: pre-wrap;
             color: #1a1a1a;
           }
-          .loading-dots {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            font-size: 24px;
+          .script {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(0, 0, 0, 0.06);
+            font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
+            font-size: 11px;
+            line-height: 1.4;
+            white-space: pre-wrap;
             color: #666;
-          }
-          .dot {
-            opacity: 0;
-            animation: fadeInOut 1s infinite;
-          }
-          .dot:nth-child(2) { animation-delay: 0.333s; }
-          .dot:nth-child(3) { animation-delay: 0.666s; }
-          @keyframes fadeInOut {
-            0%, 100% { opacity: 0; }
-            50% { opacity: 1; }
           }
           ::-webkit-scrollbar {
             width: 8px;
@@ -225,125 +363,53 @@ function createPopupWindow(responseText, isLoading = false) {
             <div class="close-btn" id="closeBtn">×</div>
           </div>
           <div class="content-wrapper" id="content">
-            ${loading ? 
-              '<div class="loading-dots"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>' :
-              `<div class="response-text">${text}</div>`
-            }
+            ${sections.join('\n')}
           </div>
         </div>
-        <script>
-          const { ipcRenderer } = require('electron');
-          
-          document.getElementById('closeBtn').addEventListener('click', () => {
-            window.close();
-          });
-          
-          // Listen for content update messages
-          ipcRenderer.on('update-content', (event, content) => {
-            const contentWrapper = document.getElementById('content');
-            contentWrapper.innerHTML = \`<div class="response-text">\${content}</div>\`;
-          });
-        </script>
       </body>
       </html>
     `;
-  };
-
-  // If we already have a popup window and it's not destroyed, update its content
-  if (popupWindow && !popupWindow.isDestroyed()) {
-    try {
-      if (isLoading) {
-        // If we're showing loading state, we need to reload the entire window
-        const htmlContent = generateHtmlContent('', true);
-        popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
-      } else {
-        // If we're updating with content, just send an IPC message to update the content
-        popupWindow.webContents.send('update-content', textToDisplay);
-      }
-      return;
-    } catch (error) {
-      console.error('Error updating existing popup:', error);
-      // If update fails, close the existing window and create a new one
-      popupWindow.close();
-      popupWindow = null;
-    }
   }
 
-  // Use last position if available, otherwise use cursor position
-  const x = lastPopupBounds.x !== undefined ? lastPopupBounds.x : cursorPosition.x;
-  const y = lastPopupBounds.y !== undefined ? lastPopupBounds.y : cursorPosition.y;
-
-  // Ensure the window will be visible on screen
-  const workArea = display.workArea;
-  const adjustedX = Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - lastPopupBounds.width);
-  const adjustedY = Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - lastPopupBounds.height);
-
-  // Create a new popup window
-  try {
+  // Create or update the popup window
+  if (!popupWindow || popupWindow.isDestroyed()) {
     popupWindow = new BrowserWindow({
       width: lastPopupBounds.width,
       height: lastPopupBounds.height,
-      x: adjustedX,
-      y: adjustedY,
+      x: lastPopupBounds.x || cursorPosition.x,
+      y: lastPopupBounds.y || cursorPosition.y,
       frame: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
       transparent: true,
+      resizable: true,
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false
       }
     });
 
-    // Load HTML content directly
-    const htmlContent = generateHtmlContent(textToDisplay, isLoading);
-    popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
-
-    // Add event listener for Escape key to close the popup
-    popupWindow.webContents.on('before-input-event', (event, input) => {
-      if (input.key === 'Escape' && popupWindow && !popupWindow.isDestroyed()) {
-        popupWindow.close();
-        popupWindow = null;
-        event.preventDefault();
-      }
-    });
-
-    // Handle window close event
-    popupWindow.on('closed', () => {
-      try {
-        // Save the bounds before nullifying the window reference
-        if (popupWindow && !popupWindow.isDestroyed()) {
-          lastPopupBounds = popupWindow.getBounds();
-        }
-      } catch (error) {
-        console.error('Error saving window bounds:', error);
-      }
-      popupWindow = null;
-    });
-
-    // Add handler for window resize and move
+    // Store window bounds when resized
     popupWindow.on('resize', () => {
-      try {
-        if (popupWindow && !popupWindow.isDestroyed()) {
-          lastPopupBounds = popupWindow.getBounds();
-        }
-      } catch (error) {
-        console.error('Error saving window bounds on resize:', error);
-      }
+      const bounds = popupWindow.getBounds();
+      lastPopupBounds.width = bounds.width;
+      lastPopupBounds.height = bounds.height;
+      lastPopupBounds.x = bounds.x;
+      lastPopupBounds.y = bounds.y;
     });
 
-    popupWindow.on('move', () => {
-      try {
-        if (popupWindow && !popupWindow.isDestroyed()) {
-          lastPopupBounds = popupWindow.getBounds();
-        }
-      } catch (error) {
-        console.error('Error saving window bounds on move:', error);
-      }
+    // Close popup when clicking the close button
+    popupWindow.webContents.on('did-finish-load', () => {
+      popupWindow.webContents.executeJavaScript(`
+        document.getElementById('closeBtn').addEventListener('click', () => {
+          window.close();
+        });
+      `);
     });
-  } catch (error) {
-    console.error('Error creating popup window:', error);
   }
+
+  // Load the content
+  const htmlContent = generateHtmlContent(responseText, isLoading);
+  popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+  popupWindow.show();
 }
 
 // Start the Python API server
@@ -352,7 +418,7 @@ async function startPythonServer() {
   log.info(`Environment: ${IS_DEV ? 'development' : 'production'}`);
   log.info(`API Host: ${API_HOST}`);
   log.info(`API Port: ${API_PORT}`);
-  
+
   if (!fs.existsSync(pythonPath)) {
     log.error(`Python executable not found at: ${pythonPath}`);
     throw new Error(`Python executable not found at: ${pythonPath}`);
@@ -427,24 +493,11 @@ function registerShortcut() {
         .then(responseData => {
           console.log('API response:', responseData);
 
-          let content = responseData.content;
-          if (typeof content === 'string') {
-            try {
-              content = JSON.parse(content);
-            } catch (e) {
-              // If it's not valid JSON, keep it as a string
-            }
-          }
-
-          if (responseData.tool_warning) {
-            content = "!!!TOOL WASN'T CALLED!!!\n" + content;
-          }
-
           // Update the existing popup with actual content
-          createPopupWindow(content, false);
+          createPopupWindow(responseData, false);
 
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('response-ready', content);
+            mainWindow.webContents.send('response-ready', responseData);
           }
         })
         .catch(error => {
@@ -460,21 +513,21 @@ function registerShortcut() {
 // Function to check system logs for clues
 function checkSystemLogs() {
   console.log('Checking system logs for clues...');
-  
+
   // On macOS, we can check the system log for our app
   if (process.platform === 'darwin') {
     const appName = app.getName();
     const logCommand = `log show --predicate 'process == "${appName}"' --last 5m | grep -i "quit\\|exit\\|terminate\\|kill"`;
-    
+
     exec(logCommand, (error, stdout, stderr) => {
       if (error) {
         console.error('Error checking system logs:', error);
         return;
       }
-      
+
       console.log('System log entries related to quitting:');
       console.log(stdout);
-      
+
       // If we found relevant logs, show them in a window
       if (stdout && stdout.trim()) {
         const logWindow = new BrowserWindow({
@@ -486,10 +539,10 @@ function checkSystemLogs() {
             contextIsolation: false
           }
         });
-        
+
         // Convert stdout to string if it's not already
         const logText = String(stdout);
-        
+
         const htmlContent = `
           <!DOCTYPE html>
           <html>
@@ -506,7 +559,7 @@ function checkSystemLogs() {
           </body>
           </html>
         `;
-        
+
         logWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
       }
     });
@@ -518,7 +571,7 @@ async function killPythonProcess() {
   if (!pythonProcess) return;
 
   log.info('Attempting to kill Python process');
-  
+
   return new Promise((resolve) => {
     // Set up exit handler
     pythonProcess.once('exit', (code, signal) => {
@@ -526,16 +579,16 @@ async function killPythonProcess() {
       pythonProcess = null;
       resolve();
     });
-    
+
     // First try SIGTERM
     pythonProcess.kill('SIGTERM');
-    
+
     // If process doesn't exit within 5 seconds, use SIGKILL
     setTimeout(() => {
       if (pythonProcess) {
         log.info('Python process still running, sending SIGKILL');
         pythonProcess.kill('SIGKILL');
-        
+
         // On macOS, also try pkill with a more specific pattern
         if (process.platform === 'darwin') {
           exec('pkill -f "python.*api.py"', (error) => {
@@ -559,13 +612,13 @@ async function killPythonProcess() {
 async function quitApp() {
   if (isQuitting) return;
   isQuitting = true;
-  
+
   log.info('Quitting application');
-  
+
   try {
     // Kill Python process first and wait for it to complete
     await killPythonProcess();
-    
+
     // Additional cleanup for macOS
     if (process.platform === 'darwin') {
       await new Promise(resolve => {
@@ -577,26 +630,26 @@ async function quitApp() {
         });
       });
     }
-    
+
     // Clean up windows and tray
     if (mainWindow) {
       log.info('Destroying main window');
       mainWindow.destroy();
       mainWindow = null;
     }
-    
+
     if (popupWindow) {
       log.info('Destroying popup window');
       popupWindow.destroy();
       popupWindow = null;
     }
-    
+
     if (tray) {
       log.info('Destroying tray icon');
       tray.destroy();
       tray = null;
     }
-    
+
     app.quit();
   } catch (error) {
     log.error('Error during quit:', error);
@@ -609,11 +662,11 @@ app.on('ready', async () => {
   try {
     await startPythonServer();
     createTray();
-    
+
     if (IS_DEV) {
       createWindow();
     }
-    
+
     registerShortcut();
 
     app.on('activate', () => {
@@ -700,7 +753,7 @@ function showDebugInfo() {
   // Get running Python processes
   exec('ps aux | grep python | grep -v grep', (error, stdout, stderr) => {
     const pythonProcesses = stdout.split('\n').filter(line => line.trim() !== '');
-    
+
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -716,20 +769,20 @@ function showDebugInfo() {
         <h2>Debug Information</h2>
         <h3>Process State</h3>
         <pre>${JSON.stringify(processInfo, null, 2)}</pre>
-        
+
         <h3>Running Python Processes</h3>
         <pre>${pythonProcesses.join('\n')}</pre>
-        
+
         <button id="forceQuit">Force Quit App</button>
         <button id="killPython">Kill All Python Processes</button>
-        
+
         <script>
           const { ipcRenderer } = require('electron');
-          
+
           document.getElementById('forceQuit').addEventListener('click', () => {
             ipcRenderer.send('force-quit');
           });
-          
+
           document.getElementById('killPython').addEventListener('click', () => {
             ipcRenderer.send('kill-python');
           });
@@ -737,7 +790,7 @@ function showDebugInfo() {
       </body>
       </html>
     `;
-    
+
     debugWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
   });
 }
@@ -787,6 +840,6 @@ ipcMain.on('get-process-info', (event) => {
       IS_DEV: IS_DEV
     }
   };
-  
+
   event.reply('process-info-response', processInfo);
 });
