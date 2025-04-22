@@ -116,7 +116,7 @@ def text_summarization(
     """
     system_prompt = dedent(f"""You are a professional summarizer.
     Create a concise TL;DR summary of the given text in {native_language}.
-    The summary should be no more than 3 sentences and capture the main points.
+    The summary should be no more than 2-3 (!!!!TWO or THREE!!!!) sentences and capture the main points.
     Only return the summary, no explanations or other text.""")
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
