@@ -5,7 +5,7 @@ from langgraph.graph import START, END, StateGraph
 from langgraph.prebuilt import ToolNode
 from src.tools.function_calculator import calculate_formula
 from src.tools.tz_convertor import convert_time
-from src.tools.llm_tools import translate_text, fix_text, text_summarization
+from src.tools.llm_tools import translate_text, fix_text, text_summarization, generate_bash_command
 from src.tools.currency_converter import convert_currency
 from textwrap import dedent
 from typing import Dict, Any, List
@@ -98,7 +98,8 @@ router_prompt = dedent("""
     1. tz_conversion - If the input has information about time that doesn't match the current time zone
     2. math_formula_calculation - If the input has a math formula
     3. convert_currency - If the input has information about currency conversion
-    4. text_task - all other cases
+    4. bash_command - If the input contains an incorrect bash command or a natural language description of what the user wants to do with bash
+    5. text_task - all other cases
 
     Return format: task_name, is_native_language
 
@@ -261,13 +262,16 @@ class AgentBuilder:
                     else:
                         error_msg = result_dict.get('error', 'Unknown error')
                         output["currency_conversion"] = f"Error: {error_msg}"
-                        state["output"]["currency_conversion"] = f"Error: {error_msg}"
                 except (ValueError, SyntaxError):
-                    state["output"]["currency_conversion"] = "Error: Could not parse currency conversion result"
+                    output["currency_conversion"] = "Error: Could not parse currency conversion result"
             else:
-                state["output"]["currency_conversion"] = "Error: Could not extract currency conversion result"
+                output["currency_conversion"] = "Error: Could not extract currency conversion result"
 
-            return {"messages": AIMessage("")}
+            return {"messages": [AIMessage("")], "output": output}
+
+        def bash_command_node(state: AgentState) -> Dict[str, Any]:
+            bash_command = generate_bash_command(state["messages"][0].content)
+            return {"output": {"bash_command": bash_command}}
 
         builder = StateGraph(AgentState)
 
@@ -281,6 +285,7 @@ class AgentBuilder:
         builder.add_node(math_formula_calculation_node)
         builder.add_node(currency_conversion_node)
         builder.add_node(currency_conversion_outro_node)
+        builder.add_node(bash_command_node)
 
         builder.add_node(ToolNode(tools=[convert_time], name="tz_conversion_tool_node"))
         builder.add_node(tz_conversion_outro_node)
@@ -294,7 +299,8 @@ class AgentBuilder:
                 "text_task": "text_task_junction_node",
                 "tz_conversion": "tz_conversion_node",
                 "math_formula_calculation": "math_formula_calculation_node",
-                "convert_currency": "currency_conversion_node"
+                "convert_currency": "currency_conversion_node",
+                "bash_command": "bash_command_node"
             }
         )
 
@@ -323,6 +329,8 @@ class AgentBuilder:
         builder.add_edge("currency_conversion_node", "currency_conversion_tool_node")
         builder.add_edge("currency_conversion_tool_node", "currency_conversion_outro_node")
         builder.add_edge("currency_conversion_outro_node", END)
+
+        builder.add_edge("bash_command_node", END)
 
         builder.add_edge("tz_conversion_outro_node", END)
 

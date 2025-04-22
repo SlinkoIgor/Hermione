@@ -127,6 +127,44 @@ def text_summarization(
     return response.content
 
 
+def generate_bash_command(
+    text: str
+) -> str:
+    """Generates a bash command based on text input.
+
+    Parameters:
+        text: Either an incorrect bash command or a natural language description
+             of what the user wants to do with bash.
+    Returns:
+        A valid one-liner bash command. If the command contains dangerous operations
+        (like rm, mv), a warning about the risks will be included.
+
+    Examples:
+        generate_bash_command("list all files in current directory") returns "ls -la"
+        generate_bash_command("rm -rf *") returns "rm -rf *\nWARNING: This command will permanently delete all files in the current directory without confirmation. Use with extreme caution."
+    """
+    system_prompt = dedent(f"""You are a bash command expert.
+    Generate a valid one-liner bash command based on the input.
+    The input could be either an incorrect bash command or a natural language description.
+    If the command contains dangerous operations (like rm, mv, etc.),
+    add a warning about the risks in the next separate line, starting with #.
+    Only return the command and warning (if applicable), no explanations or other text.
+    The command must be a one-liner.""")
+
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+    messages = [SystemMessage(system_prompt), HumanMessage(text)]
+
+    response = llm.invoke(messages)
+    response_content = response.content
+    if response_content.startswith("```bash"):
+        response_content = response_content[len("```bash"):].strip()
+    if response_content.endswith("```"):
+        response_content = response_content[:-3].strip()
+    response.content = response_content
+    return response.content
+
+
 if __name__ == "__main__":
     original = "Hello world"
     translated = translate_text(original, "Spanish", "Spanish", True)
