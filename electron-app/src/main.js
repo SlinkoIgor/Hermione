@@ -493,8 +493,9 @@ function createPopupWindow(responseText, isLoading = false) {
     // Close popup when clicking the close button
     popupWindow.webContents.on('did-finish-load', () => {
       popupWindow.webContents.executeJavaScript(`
+        const { ipcRenderer } = require('electron');
         document.getElementById('closeBtn').addEventListener('click', () => {
-          window.close();
+          ipcRenderer.send('close-popup');
         });
       `);
     });
@@ -936,4 +937,12 @@ ipcMain.on('get-process-info', (event) => {
   };
 
   event.reply('process-info-response', processInfo);
+});
+
+// Add this near the other IPC handlers
+ipcMain.on('close-popup', () => {
+  if (popupWindow && !popupWindow.isDestroyed()) {
+    popupWindow.destroy();
+    popupWindow = null;
+  }
 });
