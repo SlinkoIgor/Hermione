@@ -218,32 +218,30 @@ function createPopupWindow(responseText, isLoading = false) {
     const tabContents = [];
     let activeTab = 0;
 
-    // Add a tab for each key in the output dictionary
-    Object.entries(output).forEach(([key, value], index) => {
-      console.log(`Processing key: ${key}, value: ${value}`);
-      tabs.push(`<div class="tab ${index === activeTab ? 'active' : ''}" data-tab="${index}">${key}</div>`);
-      tabContents.push(`<div class="tab-content ${index === activeTab ? 'active' : ''}" id="tab-${index}">${value}</div>`);
-    });
+    // First, find if 'existent' exists and add it first
+    const outputEntries = Object.entries(output);
+    const existentEntry = outputEntries.find(([key]) => key === 'existent');
+    const otherEntries = outputEntries.filter(([key]) => key !== 'existent');
 
-    console.log('Generated tabs:', tabs);
-    console.log('Generated tab contents:', tabContents);
-
-    // Ensure at least one tab is active
-    if (tabs.length > 0 && !tabs.some(tab => tab.includes('active'))) {
-      tabs[0] = tabs[0].replace('class="tab"', 'class="tab active"');
-      tabContents[0] = tabContents[0].replace('class="tab-content"', 'class="tab-content active"');
+    // Add existent tab first if it exists
+    if (existentEntry) {
+      const [key, value] = existentEntry;
+      tabs.push(`<div class="tab active" data-tab="0">${key}</div>`);
+      tabContents.push(`<div class="tab-content active" id="tab-0">${value}</div>`);
     }
 
-    // Reset active tab for all tabs and tab contents
-    tabs.forEach((tab, index) => {
-      if (index === 0) {
-        tabs[index] = tab.replace('class="tab"', 'class="tab active"');
-        tabContents[index] = tabContents[index].replace('class="tab-content"', 'class="tab-content active"');
-      } else {
-        tabs[index] = tab.replace('class="tab active"', 'class="tab"');
-        tabContents[index] = tabContents[index].replace('class="tab-content active"', 'class="tab-content"');
-      }
+    // Add remaining tabs
+    otherEntries.forEach(([key, value], index) => {
+      const tabIndex = existentEntry ? index + 1 : index;
+      tabs.push(`<div class="tab ${!existentEntry && index === 0 ? 'active' : ''}" data-tab="${tabIndex}">${key}</div>`);
+      tabContents.push(`<div class="tab-content ${!existentEntry && index === 0 ? 'active' : ''}" id="tab-${tabIndex}">${value}</div>`);
     });
+
+    // Ensure at least one tab is active if no tabs were added
+    if (tabs.length === 0) {
+      tabs.push(`<div class="tab active" data-tab="0">No Content</div>`);
+      tabContents.push(`<div class="tab-content active" id="tab-0">No content available</div>`);
+    }
 
     return `
       <!DOCTYPE html>
