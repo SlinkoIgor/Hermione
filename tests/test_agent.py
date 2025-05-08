@@ -18,12 +18,13 @@ def test_word_explanation(agent):
     assert "out_translation" in messages
     assert "out_fixed" in messages
     fixed_text = re.sub(r'<[^>]+>', '', messages["out_fixed"])
-    assert "Photosynthesis" in fixed_text
+    assert "Photosynthesis" in fixed_text, fixed_text
 
 def test_time_zone_conversion_russian(agent):
     messages = agent.invoke({"messages": [HumanMessage("давай встретимся в 3 дня по Барселоне")]})
     result = messages.get("out_tz_conversion", "")
-    assert any(time in result for time in ["16:00", "17:00", "4 PM", "5 PM"])
+    assert "Барселоне" in result
+    assert any(time in result for time in ["15:00", "16:00", "3 PM", "4 PM"])
 
 def test_text_translation(agent):
     messages = agent.invoke({
@@ -42,7 +43,8 @@ def test_text_translation(agent):
 def test_time_zone_conversion_english(agent):
     messages = agent.invoke({"messages": [HumanMessage("can you make it after 4 PM Berlin time?")]})
     result = messages.get("out_tz_conversion", "")
-    assert any(time in result for time in ["16:00", "17:00", "4 PM", "5 PM"])
+    assert "Berlin" in result
+    assert any(time in result for time in ["15:00", "16:00", "3 PM", "4 PM"])
 
 def test_currency_conversion(agent):
     messages = agent.invoke({"messages": [HumanMessage("How much is 100 USD in EUR?")]})

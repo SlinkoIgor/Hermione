@@ -17,20 +17,39 @@ logger = logging.getLogger(__name__)
 
 
 time_zone_prompt = dedent("""
+    You are a tz converter. You don't chat. You need to make a time zone conversion and produce a response in {query_language}.
+
     #Below are the examples how to solve the task:
     1. **Query:** "let's meet at H1H1:M1M1 [time_zone/location] time"
-    **Answer:** "let's meet at H2H2:M2M2 [current_location] time"
+    **Answer:** "H1H1:M1M1 [time_zone/location] == H2H2:M2M2 [current_location]"
 
-    2. **Query:** "давай встретимся в полночь по Берлину"
-    **Answer:** "давай встретимся в час ночи по Никосии"  (in this toy example the current location is set to Nicosia)
-
-    3. **Query:** "можем ли мы перенести встречу в 10 AM по NY на час вперед?"
-    **Answer:** "можем ли мы перенести встречу в 3 PM по Барселоне на час вперед?" (in this toy example the current location is set to Barcelona)
-
-    In these conversations:
+   In these conversation:
     - H1H1:M1M1 is time of some [time_zone] (e.g. CET, UTC+2) or [location] (e.g. Berlin)
     - H2H2:M2M2 is time of [current_location]
     - [current_location] is {current_location}
+
+    2. **Query:** "давай встретимся в полночь по Берлину"
+    **Answer:** "полночь по Берлину == 01:00 по Никосии"
+    (in this toy example the current location is set to Nicosia)
+
+    3. **Query:** "можем ли мы перенести встречу в 10 AM по NY на час вперед?"
+    **Answer:** "10 AM по NY == 3 PM по Барселоне"
+    (in this toy example the current location is set to Barcelona)
+
+    4. **Query:** "Если в Берлине 10 AM, то в Париже"
+    **Answer:** "10 AM в Берлину == 11 AM в Париже"
+
+    5. **Query:** "Сколько сейчас в Париже?"
+    **Answer:** "Сейчас в Лондоне 11:00, значит в Париже 12:00"
+    (in this toy example the current location is set to London,
+    the time_in arg is set None, so the current time is used)
+
+    6. **Query:** "What will be the time in Paris in 2 hours?"
+    **Answer:** "Current time in London is 11:00, so in Paris it's 12:00. In 2 hours Paris time will be 14:00"
+    (in this toy example the current location is set to London,
+    the time_in arg is set None, so the current time is used.
+    The correct_time_zone can't do the time diff, so you trigger it with time_in=None, and then do the shift yourself)
+
 
     **RETURN ONLY THE ANSWER, NO OTHER TEXT.**
 
@@ -38,8 +57,8 @@ time_zone_prompt = dedent("""
     1. convert [time_zone/location] to the correct_time_zone in python format (e.g. "Europe/Berlin", "America/New_York")
     2. convert current_location which is {current_location} to the correct_current_time_zone in python format (e.g. "Europe/Berlin", "America/New_York")
     3. run a function convert_time with the correct arguments (H1H1:M1M1, correct_time_zone, correct_current_time_zone)
-    4. construct the answer from the result of the convert_time function with the same wording as the original sentence.
-        Do not add new text, only rewrite the text with the new time.
+    4. construct the answer from the result of the convert_time function.
+    5. IMPORTANT: The answer MUST be in {query_language}
 
     YOU MUST CALL THE TOOL!!!
     YOU MUST CALL THE TOOL!!!
@@ -103,17 +122,18 @@ router_prompt = dedent("""
 
     In cases when you doubt whether to include a task in the list – it's better to include it.
 
-    Return format: task1,task2,...,taskN,is_native_language
+    Return format: task1,task2,...,taskN,is_native_language,query_language
 
     Return ONLY the task names and whether the text is in the native language ({native_language}) as a string with comma delimiters, nothing else.
     The last part should be "True" if the text is in {native_language} or "False" otherwise.
-    Example: "text_task,tz_conversion,False"
+    Example: "text_task,tz_conversion,False,Spanish"
     """)
 
 
 class AgentState(MessagesState):
     tasks: List[str]
     is_native_language: bool
+    query_language: str
     tool_warning: bool = False
     out_tz_conversion: str = ""
     out_math_result: str = ""
@@ -130,15 +150,15 @@ class AgentBuilder:
         self,
         native_language: str = "Русский",
         target_language: str = "English",
-        current_location: str = "Larnaca",
         native_currency: str = "EUR",
+        current_location: str = "Asia/Nicosia",
         model_name: str = "gpt-4o-mini",
         temperature: float = 0,
     ):
         self.native_language = native_language
         self.target_language = target_language
-        self.current_location = current_location
         self.native_currency = native_currency
+        self.current_location = current_location
         self.model_name = model_name
         self.temperature = temperature
 
@@ -168,10 +188,14 @@ class AgentBuilder:
             user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
             task_response = router_llm.invoke([task_message, HumanMessage(content=user_content)])
             parts = task_response.content.lower().split(",")
-            task_names = [task.strip() for task in parts[:-1]]
-            is_native_language = parts[-1].strip() == "true"
+            task_names = [task.strip() for task in parts[:-2]]
+            is_native_language = parts[-2].strip() == "true"
+            query_language = parts[-1].strip()
+            print(f"query_language: {query_language}")
 
-            return {"tasks": task_names, "is_native_language": is_native_language}
+            return {"tasks": task_names,
+                    "is_native_language": is_native_language,
+                    "query_language": query_language}
 
         def text_task_node(state: AgentState) -> Dict[str, Any]:
             return None
@@ -181,7 +205,7 @@ class AgentBuilder:
                 text=state["messages"][0].content,
                 native_language=self.native_language,
                 target_language=self.target_language,
-                is_native_language=state["is_native_language"]
+                is_native_language=state["is_native_language"],
             )
             return {"out_translation": translated_text}
 
@@ -201,7 +225,7 @@ class AgentBuilder:
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
             system_msg = SystemMessage(
-                time_zone_prompt.format(current_location=self.current_location))
+                time_zone_prompt.format(current_location=self.current_location, query_language=state["query_language"]))
             return self.invoke_llm_with_tools(
                 tools=[convert_time],
                 system_message=system_msg,
