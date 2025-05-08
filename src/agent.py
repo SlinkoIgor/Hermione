@@ -143,6 +143,7 @@ class AgentState(MessagesState):
     out_translation: str = ""
     out_fixed: str = ""
     out_tldr: str = ""
+    out_text: str = ""
 
 
 class AgentBuilder:
@@ -193,11 +194,11 @@ class AgentBuilder:
             task_names = [task.strip() for task in parts[:-2]]
             is_native_language = parts[-2].strip() == "true"
             query_language = parts[-1].strip()
-            print(f"query_language: {query_language}")
 
             return {"tasks": task_names,
                     "is_native_language": is_native_language,
-                    "query_language": query_language}
+                    "query_language": query_language,
+                    "out_text": user_message.content}
 
         def text_task_node(state: AgentState) -> Dict[str, Any]:
             return None
