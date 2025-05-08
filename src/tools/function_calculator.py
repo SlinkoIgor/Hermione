@@ -1,8 +1,7 @@
 from typing import Any
 import math
 import numpy as np
-import signal
-import contextlib
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 def clean_user_script(user_script: str) -> str:
     """Cleans the user script by removing code block markers and import statements.
@@ -24,24 +23,10 @@ def clean_user_script(user_script: str) -> str:
 
     return '\n'.join(cleaned_lines)
 
-class TimeoutException(Exception):
-    pass
-
-@contextlib.contextmanager
-def timeout(seconds):
-    def signal_handler(signum, frame):
-        raise TimeoutException("Execution timed out")
-
-    # Set the signal handler and a 1-second alarm
-    original_handler = signal.signal(signal.SIGALRM, signal_handler)
-    signal.alarm(seconds)
-
-    try:
-        yield
-    finally:
-        # Restore the original signal handler
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, original_handler)
+def execute_code(code: str, safe_globals: dict) -> Any:
+    local_vars = {}
+    exec(code, safe_globals, local_vars)
+    return local_vars.get('result', "No result variable found in the code.")
 
 def calculate_formula(code: str) -> Any:
     """Executes the provided Python code and returns the result.
@@ -87,17 +72,11 @@ def calculate_formula(code: str) -> Any:
     }
 
     try:
-        # Execute the code in the safe environment with a 1-second timeout
-        local_vars = {}
-        with timeout(1):
-            exec(code, safe_globals, local_vars)
-
-        # Return the result if it exists
-        if 'result' in local_vars:
-            return local_vars['result']
-        else:
-            return "No result variable found in the code."
-    except TimeoutException:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(execute_code, code, safe_globals)
+            result = future.result(timeout=1)
+            return result
+    except TimeoutError:
         return "Execution timed out after 1 second."
     except Exception as e:
         return f"Error executing code: {str(e)}"

@@ -145,9 +145,14 @@ async def run(request: SimpleRequest):
         result = agent.invoke({"messages": [human_message]})
         tool_warning = result.get("tool_warning", False)
 
+        output = {}
+        for key, value in result.items():
+            if key.startswith("out_") and value:
+                output[key[4:]] = value
+
         response_data = {
             "tool_warning": tool_warning,
-            "output": result.get("output", {})
+            "output": output
         }
 
         logger.info(f"Request processed successfully, response: {response_data}")

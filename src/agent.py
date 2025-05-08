@@ -92,7 +92,7 @@ currency_conversion_prompt = dedent("""
     """)
 
 router_prompt = dedent("""
-    Analyze the user input and determine which task it belongs to:
+    Analyze the user input and determine which tasks it belongs to. Multiple tasks can be relevant for a single input.
 
     Possible tasks:
     1. tz_conversion - If the input has information about time that doesn't match the current time zone
@@ -101,21 +101,28 @@ router_prompt = dedent("""
     4. bash_command - If the input contains an incorrect bash command or a natural language description of what the user wants to do with bash
     5. text_task - all other cases
 
-    Return format: task_name, is_native_language
+    In cases when you doubt whether to include a task in the list – it's better to include it.
 
-    Return ONLY the task name and whether the text is in the native language ({native_language}) as a string with a comma delimiter, nothing else.
-    The second part should be "True" if the text is in {native_language} or "False" otherwise.
+    Return format: task1,task2,...,taskN,is_native_language
+
+    Return ONLY the task names and whether the text is in the native language ({native_language}) as a string with comma delimiters, nothing else.
+    The last part should be "True" if the text is in {native_language} or "False" otherwise.
+    Example: "text_task,tz_conversion,False"
     """)
 
 
 class AgentState(MessagesState):
-    task: str
+    tasks: List[str]
     is_native_language: bool
-    translated_text: str
-    fixed_text: str
-    summarized_text: str
     tool_warning: bool = False
-    output: Dict[str, str] = {}
+    out_tz_conversion: str = ""
+    out_math_result: str = ""
+    out_math_script: str = ""
+    out_currency_conversion: str = ""
+    out_bash_command: str = ""
+    out_translation: str = ""
+    out_fixed: str = ""
+    out_tldr: str = ""
 
 
 class AgentBuilder:
@@ -160,18 +167,14 @@ class AgentBuilder:
             user_message = state["messages"][0]
             user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
             task_response = router_llm.invoke([task_message, HumanMessage(content=user_content)])
-            task_name, is_native_language = task_response.content.lower().split(",")
-            task_name = task_name.strip()
-            is_native_language = is_native_language.strip() == "true"
+            parts = task_response.content.lower().split(",")
+            task_names = [task.strip() for task in parts[:-1]]
+            is_native_language = parts[-1].strip() == "true"
 
-            return {"task": task_name, "is_native_language": is_native_language}
+            return {"tasks": task_names, "is_native_language": is_native_language}
 
-        def text_task_junction_node(state: AgentState) -> Dict[str, Any]:
-            text = state["messages"][0].content
-            words = [word for word in text.split() if word.strip()]
-            word_count = len(words)
-            should_summarize = word_count > 100
-            return {"should_summarize": should_summarize}
+        def text_task_node(state: AgentState) -> Dict[str, Any]:
+            return None
 
         def text_translation_node(state: AgentState) -> Dict[str, Any]:
             translated_text = translate_text(
@@ -180,34 +183,21 @@ class AgentBuilder:
                 target_language=self.target_language,
                 is_native_language=state["is_native_language"]
             )
-            return {"translated_text": translated_text}
+            return {"out_translation": translated_text}
 
         def text_fix_node(state: AgentState) -> Dict[str, Any]:
             fixed_text = fix_text(
                 text=state["messages"][0].content
             )
-            return {"fixed_text": fixed_text}
+            return {"out_fixed": fixed_text}
 
         def text_summarization_node(state: AgentState) -> Dict[str, Any]:
-            summarized_text = text_summarization(
+            if len(state["messages"][0].content.split()) <= 100:
+                return None
+
+            return {"out_tldr": text_summarization(
                 text=state["messages"][0].content,
-                native_language=self.native_language
-            )
-            return {"summarized_text": summarized_text}
-
-        def text_aggregation_node(state: AgentState) -> Dict[str, Any]:
-            translated_text = state.get("translated_text", "")
-            fixed_text = state.get("fixed_text", "")
-            summarized_text = state.get("summarized_text", "")
-
-            output = {}
-            if summarized_text:
-                output["tldr"] = summarized_text
-
-            output["translation"] = translated_text
-            output["fixed"] = fixed_text
-
-            return {"output": output}
+                native_language=self.native_language)}
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
             system_msg = SystemMessage(
@@ -221,17 +211,15 @@ class AgentBuilder:
         def tz_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
             tz_conversion_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
             response = tz_conversion_llm.invoke(state["messages"])
-            return {"output": {"tz_conversion": response.content}}
+            return {"out_tz_conversion": response.content}
 
         def math_formula_calculation_node(state: AgentState) -> Dict[str, Any]:
             math_formula_calculation_llm = ChatOpenAI(model=self.model_name, temperature=self.temperature)
             response = math_formula_calculation_llm.invoke([SystemMessage(math_formula_calculation_prompt), state["messages"][0]])
             calculation_result = calculate_formula(response.content)
             return {
-                "output": {
-                    "math_result": str(calculation_result),
-                    "math_script": response.content
-                }
+                "out_math_result": str(calculation_result),
+                "out_math_script": response.content
             }
 
         def currency_conversion_node(state: AgentState) -> Dict[str, Any]:
@@ -245,42 +233,41 @@ class AgentBuilder:
 
         def currency_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
             last_message = state["messages"][-1]
-            output = {}
+            result = ""
 
             if hasattr(last_message, 'content'):
                 try:
                     import ast
                     result_dict = ast.literal_eval(last_message.content)
 
-                    result = result_dict.get('result')
+                    conversion_result = result_dict.get('result')
                     amount = result_dict.get('amount', 0)
                     source_currency = result_dict.get('source_currency', '')
                     target_currency = result_dict.get('target_currency', '')
 
-                    if result is not None:
-                        output["currency_conversion"] = f"{amount} {source_currency} == {result:.2f} {target_currency}"
+                    if conversion_result is not None:
+                        result = f"{amount} {source_currency} == {conversion_result:.2f} {target_currency}"
                     else:
                         error_msg = result_dict.get('error', 'Unknown error')
-                        output["currency_conversion"] = f"Error: {error_msg}"
+                        result = f"Error: {error_msg}"
                 except (ValueError, SyntaxError):
-                    output["currency_conversion"] = "Error: Could not parse currency conversion result"
+                    result = "Error: Could not parse currency conversion result"
             else:
-                output["currency_conversion"] = "Error: Could not extract currency conversion result"
+                result = "Error: Could not extract currency conversion result"
 
-            return {"messages": [AIMessage("")], "output": output}
+            return {"messages": [AIMessage("")], "out_currency_conversion": result}
 
         def bash_command_node(state: AgentState) -> Dict[str, Any]:
             bash_command = generate_bash_command(state["messages"][0].content)
-            return {"output": {"bash_command": bash_command}}
+            return {"out_bash_command": bash_command}
 
         builder = StateGraph(AgentState)
 
         builder.add_node(task_router_node)
-        builder.add_node(text_task_junction_node)
+        builder.add_node(text_task_node)
         builder.add_node(text_translation_node)
         builder.add_node(text_fix_node)
         builder.add_node(text_summarization_node)
-        builder.add_node(text_aggregation_node)
         builder.add_node(tz_conversion_node)
         builder.add_node(math_formula_calculation_node)
         builder.add_node(currency_conversion_node)
@@ -294,9 +281,9 @@ class AgentBuilder:
         builder.add_edge(START, "task_router_node")
         builder.add_conditional_edges(
             "task_router_node",
-            lambda x: x["task"],
+            lambda x: x["tasks"],
             {
-                "text_task": "text_task_junction_node",
+                "text_task": "text_task_node",
                 "tz_conversion": "tz_conversion_node",
                 "math_formula_calculation": "math_formula_calculation_node",
                 "convert_currency": "currency_conversion_node",
@@ -304,22 +291,13 @@ class AgentBuilder:
             }
         )
 
-        builder.add_edge("text_task_junction_node", "text_translation_node")
-        builder.add_edge("text_task_junction_node", "text_fix_node")
+        builder.add_edge("text_task_node", "text_translation_node")
+        builder.add_edge("text_task_node", "text_fix_node")
+        builder.add_edge("text_task_node", "text_summarization_node")
 
-        builder.add_conditional_edges(
-            "text_task_junction_node",
-            lambda x: "text_summarization_node" if x.get("should_summarize", False) else "skip_summarization",
-            {
-                "text_summarization_node": "text_summarization_node",
-                "skip_summarization": "text_aggregation_node"
-            }
-        )
-
-        builder.add_edge("text_translation_node", "text_aggregation_node")
-        builder.add_edge("text_fix_node", "text_aggregation_node")
-        builder.add_edge("text_summarization_node", "text_aggregation_node")
-        builder.add_edge("text_aggregation_node", END)
+        builder.add_edge("text_translation_node", END)
+        builder.add_edge("text_fix_node", END)
+        builder.add_edge("text_summarization_node", END)
 
         builder.add_edge("tz_conversion_node", "tz_conversion_tool_node")
         builder.add_edge("tz_conversion_tool_node", "tz_conversion_outro_node")
