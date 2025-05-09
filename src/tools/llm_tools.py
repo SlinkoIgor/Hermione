@@ -28,7 +28,7 @@ def translate_text(
     Translate the given text (or word) to {target}.
     Maintain the original meaning, tone, and style as much as possible.
     Only return the translated text (or word), no explanations or other text.
-    Preserve the original line breaks in the text.
+    Preserve the original formatting (tabs, line breaks, etc.) in the text.
 
     If it's a word (or two words) not a text, then return 1 main translation and 2 possible translations with the following format:
     main_translation
@@ -59,7 +59,7 @@ def fix_text(
     For every word where you make a change (spelling, words order, words deletion, words addition) put it in <b>tags</b>.
     If you've changed the capital letter, make only this letter in <b>tags</b>.
     If you added punctuation, make only this punctuation in <b>tags</b>.
-    Preserve the original line breaks in the text.
+    Preserve the original formatting (tabs, line breaks, etc.) in the text.
     Only return the fixed text, no explanations or other text.""")
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0)

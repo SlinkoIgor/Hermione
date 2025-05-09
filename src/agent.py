@@ -8,7 +8,7 @@ from src.tools.tz_convertor import convert_time
 from src.tools.llm_tools import translate_text, fix_text, text_summarization, generate_bash_command
 from src.tools.currency_converter import convert_currency
 from textwrap import dedent
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Annotated
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 import logging
@@ -116,25 +116,29 @@ router_prompt = dedent("""
     Possible tasks:
     1. tz_conversion - If the input has information about time that doesn't match the current time zone
     2. math_formula_calculation - If the input has a math formula
-    3. convert_currency - If the input has information about currency conversion
+    3. currency_conversion - If the input has information about currency conversion
     4. bash_command - If the input contains an incorrect bash command or a natural language description of what the user wants to do with bash
     5. text_task - all other cases
 
     In cases when you doubt whether to include a task in the list – it's better to include it.
 
-    Return format: task1,task2,...,taskN,is_native_language,query_language
+    Also figure out the query language and if the text is in the native language ({native_language})
 
-    Return ONLY the task names and whether the text is in the native language ({native_language}) as a string with comma delimiters, nothing else.
-    The last part should be "True" if the text is in {native_language} or "False" otherwise.
+    Return ONLY the task names is_native_language and query_language as a string with comma delimiters, nothing else.
+    The one to the last part should be "True" if the text is in {native_language} or "False" otherwise.
+    The last part should be the query language.
+    Return format: task1,task2,...,taskN,is_native_language,query_language
     Example: "text_task,tz_conversion,False,Spanish"
     """)
 
+def merge_tool_warning(a: bool, b: bool) -> bool:
+    return a or b
 
 class AgentState(MessagesState):
     tasks: List[str]
     is_native_language: bool
     query_language: str
-    tool_warning: bool = False
+    tool_warning: Annotated[bool, merge_tool_warning] = False
     out_tz_conversion: str = ""
     out_math_result: str = ""
     out_math_script: str = ""
@@ -189,8 +193,11 @@ class AgentBuilder:
             user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
             task_response = router_llm.invoke([task_message, HumanMessage(content=user_content)])
             parts = task_response.content.lower().split(",")
+            print("!!!!!!!!!!!!!!!!!!!!", parts)
             if "text_task" not in parts:
                 parts = ["text_task"] + parts
+                print("????????", parts)
+            print("!!!!!!!!!!!!!!!!!!!!", parts)
             task_names = [task.strip() for task in parts[:-2]]
             is_native_language = parts[-2].strip() == "true"
             query_language = parts[-1].strip()
@@ -200,7 +207,12 @@ class AgentBuilder:
                     "query_language": query_language,
                     "out_text": user_message.content}
 
+        def routing_function(state: AgentState) -> list[str]:
+            print("TTTTTTT", [t + "_node" for t in state["tasks"]])
+            return [t + "_node" for t in state["tasks"]]
+
         def text_task_node(state: AgentState) -> Dict[str, Any]:
+            print("TEXT TASK NODE", state)
             return None
 
         def text_translation_node(state: AgentState) -> Dict[str, Any]:
@@ -227,6 +239,7 @@ class AgentBuilder:
                 native_language=self.native_language)}
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
+            print("TZ CONVERSION NODE", state)
             system_msg = SystemMessage(
                 time_zone_prompt.format(current_location=self.current_location, query_language=state["query_language"]))
             return self.invoke_llm_with_tools(
@@ -288,6 +301,10 @@ class AgentBuilder:
             bash_command = generate_bash_command(state["messages"][0].content)
             return {"out_bash_command": bash_command}
 
+        def final_aggregation_node(state: AgentState) -> Dict[str, Any]:
+            print("FINAL AGGREGATION NODE", state)
+            return state
+
         builder = StateGraph(AgentState)
 
         builder.add_node(task_router_node)
@@ -300,44 +317,35 @@ class AgentBuilder:
         builder.add_node(currency_conversion_node)
         builder.add_node(currency_conversion_outro_node)
         builder.add_node(bash_command_node)
+        builder.add_node(final_aggregation_node)
 
         builder.add_node(ToolNode(tools=[convert_time], name="tz_conversion_tool_node"))
         builder.add_node(tz_conversion_outro_node)
         builder.add_node(ToolNode(tools=[convert_currency], name="currency_conversion_tool_node"))
 
         builder.add_edge(START, "task_router_node")
-        builder.add_conditional_edges(
-            "task_router_node",
-            lambda x: x["tasks"],
-            {
-                "text_task": "text_task_node",
-                "tz_conversion": "tz_conversion_node",
-                "math_formula_calculation": "math_formula_calculation_node",
-                "convert_currency": "currency_conversion_node",
-                "bash_command": "bash_command_node"
-            }
-        )
-
+        builder.add_conditional_edges("task_router_node", routing_function)
         builder.add_edge("text_task_node", "text_translation_node")
         builder.add_edge("text_task_node", "text_fix_node")
         builder.add_edge("text_task_node", "text_summarization_node")
 
-        builder.add_edge("text_translation_node", END)
-        builder.add_edge("text_fix_node", END)
-        builder.add_edge("text_summarization_node", END)
+        builder.add_edge("text_translation_node", "final_aggregation_node")
+        builder.add_edge("text_fix_node", "final_aggregation_node")
+        builder.add_edge("text_summarization_node", "final_aggregation_node")
 
         builder.add_edge("tz_conversion_node", "tz_conversion_tool_node")
         builder.add_edge("tz_conversion_tool_node", "tz_conversion_outro_node")
+        builder.add_edge("tz_conversion_outro_node", "final_aggregation_node")
 
-        builder.add_edge("math_formula_calculation_node", END)
+        builder.add_edge("math_formula_calculation_node", "final_aggregation_node")
 
         builder.add_edge("currency_conversion_node", "currency_conversion_tool_node")
         builder.add_edge("currency_conversion_tool_node", "currency_conversion_outro_node")
-        builder.add_edge("currency_conversion_outro_node", END)
+        builder.add_edge("currency_conversion_outro_node", "final_aggregation_node")
 
-        builder.add_edge("bash_command_node", END)
+        builder.add_edge("bash_command_node", "final_aggregation_node")
 
-        builder.add_edge("tz_conversion_outro_node", END)
+        builder.add_edge("final_aggregation_node", END)
 
         return builder.compile()
 
