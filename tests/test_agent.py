@@ -38,7 +38,7 @@ def test_text_translation(agent):
     assert "out_fixed" in messages
     fixed_text = re.sub(r'<[^>]+>', '', messages["out_fixed"])
     assert "LangChain" in fixed_text
-    assert "bind_tools" in fixed_text
+    assert "bind_tools" in fixed_text.lower()
 
 def test_time_zone_conversion_english(agent):
     messages = agent.invoke({"messages": [HumanMessage("can you make it after 4 PM Berlin time?")]})

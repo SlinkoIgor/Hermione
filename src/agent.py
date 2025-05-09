@@ -205,10 +205,16 @@ class AgentBuilder:
                     "out_text": user_message.content}
 
         def routing_function(state: AgentState) -> list[str]:
-            return [t + "_node" for t in state["tasks"]]
-
-        def text_task_node(state: AgentState) -> Dict[str, Any]:
-            return None
+            routes = []
+            for task in state["tasks"]:
+                if task == "text_task":
+                    if len(state["messages"][0].content.split()) > 100:
+                        routes.append("text_summarization_node")
+                    routes.append("text_translation_node")
+                    routes.append("text_fix_node")
+                else:
+                    routes.append(f"{task}_node")
+            return routes
 
         def text_translation_node(state: AgentState) -> Dict[str, Any]:
             translated_text = translate_text(
@@ -226,9 +232,6 @@ class AgentBuilder:
             return {"out_fixed": fixed_text}
 
         def text_summarization_node(state: AgentState) -> Dict[str, Any]:
-            if len(state["messages"][0].content.split()) <= 100:
-                return None
-
             return {"out_tldr": text_summarization(
                 text=state["messages"][0].content,
                 native_language=self.native_language)}
@@ -298,7 +301,6 @@ class AgentBuilder:
         builder = StateGraph(AgentState)
 
         builder.add_node(task_router_node)
-        builder.add_node(text_task_node)
         builder.add_node(text_translation_node)
         builder.add_node(text_fix_node)
         builder.add_node(text_summarization_node)
@@ -314,10 +316,6 @@ class AgentBuilder:
 
         builder.add_edge(START, "task_router_node")
         builder.add_conditional_edges("task_router_node", routing_function)
-
-        builder.add_edge("text_task_node", "text_translation_node")
-        builder.add_edge("text_task_node", "text_fix_node")
-        builder.add_edge("text_task_node", "text_summarization_node")
 
         builder.add_edge("text_translation_node", END)
         builder.add_edge("text_fix_node", END)
