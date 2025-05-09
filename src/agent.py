@@ -193,11 +193,8 @@ class AgentBuilder:
             user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
             task_response = router_llm.invoke([task_message, HumanMessage(content=user_content)])
             parts = task_response.content.lower().split(",")
-            print("!!!!!!!!!!!!!!!!!!!!", parts)
             if "text_task" not in parts:
                 parts = ["text_task"] + parts
-                print("????????", parts)
-            print("!!!!!!!!!!!!!!!!!!!!", parts)
             task_names = [task.strip() for task in parts[:-2]]
             is_native_language = parts[-2].strip() == "true"
             query_language = parts[-1].strip()
@@ -208,11 +205,9 @@ class AgentBuilder:
                     "out_text": user_message.content}
 
         def routing_function(state: AgentState) -> list[str]:
-            print("TTTTTTT", [t + "_node" for t in state["tasks"]])
             return [t + "_node" for t in state["tasks"]]
 
         def text_task_node(state: AgentState) -> Dict[str, Any]:
-            print("TEXT TASK NODE", state)
             return None
 
         def text_translation_node(state: AgentState) -> Dict[str, Any]:
@@ -239,7 +234,6 @@ class AgentBuilder:
                 native_language=self.native_language)}
 
         def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
-            print("TZ CONVERSION NODE", state)
             system_msg = SystemMessage(
                 time_zone_prompt.format(current_location=self.current_location, query_language=state["query_language"]))
             return self.invoke_llm_with_tools(
@@ -301,10 +295,6 @@ class AgentBuilder:
             bash_command = generate_bash_command(state["messages"][0].content)
             return {"out_bash_command": bash_command}
 
-        def final_aggregation_node(state: AgentState) -> Dict[str, Any]:
-            print("FINAL AGGREGATION NODE", state)
-            return state
-
         builder = StateGraph(AgentState)
 
         builder.add_node(task_router_node)
@@ -317,7 +307,6 @@ class AgentBuilder:
         builder.add_node(currency_conversion_node)
         builder.add_node(currency_conversion_outro_node)
         builder.add_node(bash_command_node)
-        builder.add_node(final_aggregation_node)
 
         builder.add_node(ToolNode(tools=[convert_time], name="tz_conversion_tool_node"))
         builder.add_node(tz_conversion_outro_node)
@@ -325,27 +314,26 @@ class AgentBuilder:
 
         builder.add_edge(START, "task_router_node")
         builder.add_conditional_edges("task_router_node", routing_function)
+
         builder.add_edge("text_task_node", "text_translation_node")
         builder.add_edge("text_task_node", "text_fix_node")
         builder.add_edge("text_task_node", "text_summarization_node")
 
-        builder.add_edge("text_translation_node", "final_aggregation_node")
-        builder.add_edge("text_fix_node", "final_aggregation_node")
-        builder.add_edge("text_summarization_node", "final_aggregation_node")
+        builder.add_edge("text_translation_node", END)
+        builder.add_edge("text_fix_node", END)
+        builder.add_edge("text_summarization_node", END)
 
         builder.add_edge("tz_conversion_node", "tz_conversion_tool_node")
         builder.add_edge("tz_conversion_tool_node", "tz_conversion_outro_node")
-        builder.add_edge("tz_conversion_outro_node", "final_aggregation_node")
+        builder.add_edge("tz_conversion_outro_node", END)
 
-        builder.add_edge("math_formula_calculation_node", "final_aggregation_node")
+        builder.add_edge("math_formula_calculation_node", END)
 
         builder.add_edge("currency_conversion_node", "currency_conversion_tool_node")
         builder.add_edge("currency_conversion_tool_node", "currency_conversion_outro_node")
-        builder.add_edge("currency_conversion_outro_node", "final_aggregation_node")
+        builder.add_edge("currency_conversion_outro_node", END)
 
-        builder.add_edge("bash_command_node", "final_aggregation_node")
-
-        builder.add_edge("final_aggregation_node", END)
+        builder.add_edge("bash_command_node", END)
 
         return builder.compile()
 
