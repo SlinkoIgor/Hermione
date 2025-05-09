@@ -189,7 +189,7 @@ class AgentBuilder:
             user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
             task_response = router_llm.invoke([task_message, HumanMessage(content=user_content)])
             parts = task_response.content.lower().split(",")
-            if len(parts) == 2:
+            if "text_task" not in parts:
                 parts = ["text_task"] + parts
             task_names = [task.strip() for task in parts[:-2]]
             is_native_language = parts[-2].strip() == "true"
