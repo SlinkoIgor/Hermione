@@ -22,6 +22,7 @@ const IS_DEV = process.env.NODE_ENV === 'development';
 const DEFAULT_PORT = 8123;
 const API_PORT = process.env.API_PORT || (IS_DEV ? 8124 : DEFAULT_PORT);
 const API_HOST = '127.0.0.1';
+const PROVIDER_MODE = process.env.PROVIDER_MODE || 'both';
 
 // Path to the Python executable in the virtual environment
 const pythonPath = IS_DEV
@@ -571,32 +572,107 @@ function registerShortcut() {
 
       if (selectedText) {
         // Show loading popup immediately
-        createPopupWindow('', true);
+        let accumulatedOutput = {};
+        let allComplete = false;
 
-        fetch(`http://${API_HOST}:${API_PORT}/runs`, {
+        const updatePopup = (output, isLoading) => {
+          const responseData = {
+            tool_warning: false,
+            output: output
+          };
+          createPopupWindow(responseData, isLoading);
+        };
+
+        updatePopup({}, true);
+
+        fetch(`http://${API_HOST}:${API_PORT}/runs/stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            content: selectedText
+            content: selectedText,
+            provider_mode: PROVIDER_MODE
           }),
         })
-        .then(response => response.json())
-        .then(responseData => {
-          console.log('API response:', responseData);
-
-          // Update the existing popup with actual content
-          createPopupWindow(responseData, false);
-
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('response-ready', responseData);
+        .then(async response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
           }
+
+          const stream = response.body;
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          return new Promise((resolve, reject) => {
+            stream.on('data', (chunk) => {
+              buffer += decoder.decode(chunk, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    
+                    if (data.error) {
+                      console.error('Stream error:', data.error);
+                      updatePopup({ error: data.error }, false);
+                      reject(new Error(data.error));
+                      return;
+                    }
+
+                    if (data.output) {
+                      Object.assign(accumulatedOutput, data.output);
+                      updatePopup(accumulatedOutput, !data.all_complete);
+                      
+                      if (data.all_complete) {
+                        allComplete = true;
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                          mainWindow.webContents.send('response-ready', {
+                            tool_warning: data.tool_warning || false,
+                            output: accumulatedOutput
+                          });
+                        }
+                        resolve();
+                      }
+                    }
+                  } catch (e) {
+                    console.error('Error parsing stream data:', e);
+                  }
+                }
+              }
+            });
+
+            stream.on('end', () => {
+              if (buffer.trim()) {
+                const line = buffer.trim();
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.output) {
+                      Object.assign(accumulatedOutput, data.output);
+                      updatePopup(accumulatedOutput, false);
+                    }
+                  } catch (e) {
+                    console.error('Error parsing final stream data:', e);
+                  }
+                }
+              }
+              if (!allComplete) {
+                resolve();
+              }
+            });
+
+            stream.on('error', (error) => {
+              console.error('Stream error:', error);
+              reject(error);
+            });
+          });
         })
         .catch(error => {
           console.error('Error calling API:', error);
-          // Show error in popup
-          createPopupWindow('Error: Failed to get response from API', false);
+          updatePopup({ error: `Failed to get response from API: ${error.message}` }, false);
         });
       }
     }

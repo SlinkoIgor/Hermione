@@ -9,4 +9,5 @@ typing-extensions>=4.9.0
 python-multipart>=0.0.9
 requests>=2.31.0
 numpy>=1.26.4
-pytz>=2024.1 
+pytz>=2024.1
+openai>=1.0.0 

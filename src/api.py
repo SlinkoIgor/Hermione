@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Literal
 import uvicorn
@@ -15,6 +16,7 @@ import signal
 import asyncio
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 
 # Load environment variables from .env file in the root directory
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
@@ -55,6 +57,9 @@ shutdown_event = asyncio.Event()
 
 # Global agent variable
 agent = None
+
+# Thread pool executor for running synchronous agent invocations
+executor = ThreadPoolExecutor(max_workers=4)
 
 # Get environment variables
 DEFAULT_PORT = 8123
@@ -132,27 +137,93 @@ app.add_middleware(
 
 class SimpleRequest(BaseModel):
     content: str
+    provider_mode: Literal["openai_only", "litellm_only", "both"] = "openai_only"
 
-@app.post("/runs")
-async def run(request: SimpleRequest):
-    """
-    Process a user message and return the agent's response.
-    """
+async def run_agent_async(provider: str, human_message: HumanMessage) -> tuple[str, Dict[str, Any], bool]:
+    """Run an agent asynchronously and return provider name, result, and tool_warning."""
     try:
-        logger.info(f"Processing request with content: {request.content[:100]}...")
-        user_message = request.content
-        human_message = HumanMessage(content=user_message)
-        result = agent.invoke({"messages": [human_message]})
+        logger.info(f"Running agent with provider: {provider}")
+        if provider == "openai":
+            agent_instance = AgentBuilder(
+                provider=provider,
+                base_model="gpt-5",
+                fast_model="gpt-5-mini"
+            ).build()
+        else:
+            agent_instance = AgentBuilder(
+                provider=provider,
+                base_model="gemini-2.5-pro",
+                fast_model="gemini-2.5-flash"
+            ).build()
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            executor,
+            agent_instance.invoke,
+            {"messages": [human_message]}
+        )
         tool_warning = result.get("tool_warning", False)
 
         output = {}
         for key, value in result.items():
             if key.startswith("out_") and value:
-                output[key[4:]] = value
+                output_key = key[4:]
+                if output_key == "text":
+                    continue
+                if provider == "litellm":
+                    output_key = f"🚄{output_key}"
+                output[output_key] = value
+
+        return provider, output, tool_warning
+    except Exception as e:
+        logger.error(f"Error running agent with provider {provider}: {str(e)}", exc_info=True)
+        if provider == "litellm":
+            logger.warning(f"LiteLLM provider failed, continuing without it")
+            return provider, {}, False
+        else:
+            raise
+
+@app.post("/runs")
+async def run(request: SimpleRequest):
+    """
+    Process a user message and return the agent's response.
+    Supports running with OpenAI only, LiteLLM only, or both providers.
+    Runs agents in parallel when provider_mode is "both".
+    """
+    try:
+        logger.info(f"Processing request with content: {request.content[:100]}... provider_mode: {request.provider_mode}")
+        user_message = request.content
+        human_message = HumanMessage(content=user_message)
+
+        providers_to_run = []
+        if request.provider_mode == "openai_only" or request.provider_mode == "both":
+            providers_to_run.append("openai")
+        if request.provider_mode == "litellm_only" or request.provider_mode == "both":
+            providers_to_run.append("litellm")
+
+        all_results = {}
+        tool_warnings = []
+
+        if len(providers_to_run) > 1:
+            tasks = [run_agent_async(provider, human_message) for provider in providers_to_run]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Agent execution failed: {result}", exc_info=True)
+                    continue
+                provider, output, tool_warning = result
+                tool_warnings.append(tool_warning)
+                all_results.update(output)
+        else:
+            for provider in providers_to_run:
+                _, output, tool_warning = await run_agent_async(provider, human_message)
+                tool_warnings.append(tool_warning)
+                all_results.update(output)
 
         response_data = {
-            "tool_warning": tool_warning,
-            "output": output
+            "tool_warning": any(tool_warnings),
+            "output": all_results
         }
 
         logger.info(f"Request processed successfully, response: {response_data}")
@@ -160,6 +231,104 @@ async def run(request: SimpleRequest):
     except Exception as e:
         logger.error(f"Error in run: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/runs/stream")
+async def run_stream(request: SimpleRequest):
+    """
+    Process a user message and stream results as they become available.
+    Supports running with OpenAI only, LiteLLM only, or both providers.
+    Runs agents in parallel and sends results as they complete.
+    """
+    async def generate():
+        try:
+            logger.info(f"Processing streaming request with content: {request.content[:100]}... provider_mode: {request.provider_mode}")
+            user_message = request.content
+            human_message = HumanMessage(content=user_message)
+
+            providers_to_run = []
+            if request.provider_mode == "openai_only" or request.provider_mode == "both":
+                providers_to_run.append("openai")
+            if request.provider_mode == "litellm_only" or request.provider_mode == "both":
+                providers_to_run.append("litellm")
+
+            all_results = {}
+            tool_warnings = []
+            completed_providers = set()
+
+            if len(providers_to_run) > 1:
+                tasks = {provider: asyncio.create_task(run_agent_async(provider, human_message)) for provider in providers_to_run}
+
+                while tasks:
+                    done, pending = await asyncio.wait(
+                        tasks.values(),
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+
+                    for task in done:
+                        provider = None
+                        for p, t in tasks.items():
+                            if t == task:
+                                provider = p
+                                break
+                        if provider:
+                            del tasks[provider]
+                            try:
+                                _, output, tool_warning = await task
+                                tool_warnings.append(tool_warning)
+                                all_results.update(output)
+                                completed_providers.add(provider)
+
+                                response_chunk = {
+                                    "provider": provider,
+                                    "output": output,
+                                    "tool_warning": tool_warning,
+                                    "completed": True,
+                                    "all_complete": len(completed_providers) == len(providers_to_run)
+                                }
+                                yield f"data: {json.dumps(response_chunk)}\n\n"
+                            except Exception as e:
+                                logger.error(f"Error in agent task for {provider}: {e}", exc_info=True)
+                                if provider == "litellm":
+                                    completed_providers.add(provider)
+                                    response_chunk = {
+                                        "provider": provider,
+                                        "error": str(e),
+                                        "completed": True,
+                                        "all_complete": len(completed_providers) == len(providers_to_run)
+                                    }
+                                    yield f"data: {json.dumps(response_chunk)}\n\n"
+                                else:
+                                    raise
+
+            else:
+                for provider in providers_to_run:
+                    _, output, tool_warning = await run_agent_async(provider, human_message)
+                    tool_warnings.append(tool_warning)
+                    all_results.update(output)
+                    completed_providers.add(provider)
+
+                    response_chunk = {
+                        "provider": provider,
+                        "output": output,
+                        "tool_warning": tool_warning,
+                        "completed": True,
+                        "all_complete": True
+                    }
+                    yield f"data: {json.dumps(response_chunk)}\n\n"
+
+            final_response = {
+                "tool_warning": any(tool_warnings),
+                "output": all_results,
+                "all_complete": True
+            }
+            yield f"data: {json.dumps(final_response)}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error in stream: {str(e)}", exc_info=True)
+            error_response = {"error": str(e)}
+            yield f"data: {json.dumps(error_response)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.get("/")
 async def root():

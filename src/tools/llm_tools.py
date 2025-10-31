@@ -34,7 +34,7 @@ def translate_text(
     main_translation
     [possible_translation_1, possible_translation_2]""")
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = ChatOpenAI(model="gpt-5", temperature=1)
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
@@ -62,7 +62,7 @@ def fix_text(
     Preserve the original formatting (tabs, line breaks, etc.) in the text.
     Only return the fixed text, no explanations or other text.""")
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = ChatOpenAI(model="gpt-5", temperature=1)
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
@@ -95,7 +95,7 @@ def explain_word(
         The exaplanation should have no more than 100 words,
         and start with the query word/phrase in that {native_language}."""))
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = ChatOpenAI(model="gpt-5-mini", temperature=1)
 
     messages = [system_message, HumanMessage(content=word)]
 
@@ -123,7 +123,7 @@ def text_summarization(
     The summary should be no more than 2-3 (!!!!TWO or THREE!!!!) sentences and capture the main points.
     Only return the summary, no explanations or other text.""")
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = ChatOpenAI(model="gpt-5", temperature=1)
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
@@ -155,7 +155,7 @@ def generate_bash_command(
     Only return the command and warning (if applicable), no explanations or other text.
     The command must be a one-liner.""")
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = ChatOpenAI(model="gpt-5", temperature=1)
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 

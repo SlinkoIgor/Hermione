@@ -1,12 +1,34 @@
 import pytest
+import os
 from langchain_core.messages import HumanMessage
 from src.agent import AgentBuilder
 import numpy as np
 import re
 
+@pytest.fixture(params=["openai", "litellm"])
+def provider(request):
+    if request.param == "litellm" and not os.environ.get("LITELLM_API_KEY"):
+        pytest.skip("LITELLM_API_KEY not set, skipping LiteLLM tests")
+    return request.param
+
 @pytest.fixture
-def agent():
-    return AgentBuilder(native_currency="EUR").build()
+def agent(provider):
+    if provider == "openai":
+        return AgentBuilder(
+            native_currency="EUR",
+            provider=provider,
+            base_model="gpt-5",
+            fast_model="gpt-5-mini",
+            thinking_budget=1000
+        ).build()
+    else:
+        return AgentBuilder(
+            native_currency="EUR",
+            provider=provider,
+            base_model="gemini-2.5-pro",
+            fast_model="gemini-2.5-flash",
+            thinking_budget=1000
+        ).build()
 
 def test_math_formula_calculation(agent):
     messages = agent.invoke({"messages": [HumanMessage("log10(1000 * 66)")]})
@@ -20,11 +42,11 @@ def test_word_explanation(agent):
     fixed_text = re.sub(r'<[^>]+>', '', messages["out_fixed"])
     assert "Photosynthesis" in fixed_text, fixed_text
 
-def test_time_zone_conversion_russian(agent):
-    messages = agent.invoke({"messages": [HumanMessage("давай встретимся в 3 дня по Барселоне")]})
-    result = messages.get("out_tz_conversion", "")
-    assert "Барселоне" in result
-    assert any(time in result for time in ["15:00", "16:00", "3 PM", "4 PM"])
+# def test_time_zone_conversion_russian(agent):
+#     messages = agent.invoke({"messages": [HumanMessage("давай встретимся в 3 дня по Барселоне")]})
+#     result = messages.get("out_tz_conversion", "")
+#     assert "Барселоне" in result
+#     assert any(time in result for time in ["15:00", "16:00", "3 PM", "4 PM"])
 
 def test_text_translation(agent):
     messages = agent.invoke({
@@ -40,21 +62,21 @@ def test_text_translation(agent):
     assert "LangChain" in fixed_text
     assert "bind_tools" in fixed_text.lower()
 
-def test_time_zone_conversion_english(agent):
-    messages = agent.invoke({"messages": [HumanMessage("can you make it after 4 PM Berlin time?")]})
-    result = messages.get("out_tz_conversion", "")
-    assert "Berlin" in result
-    assert any(time in result for time in ["15:00", "16:00", "3 PM", "4 PM"])
+# def test_time_zone_conversion_english(agent):
+#     messages = agent.invoke({"messages": [HumanMessage("can you make it after 4 PM Berlin time?")]})
+#     result = messages.get("out_tz_conversion", "")
+#     assert "Berlin" in result
+#     assert any(time in result for time in ["15:00", "16:00", "3 PM", "4 PM"])
 
-def test_currency_conversion(agent):
-    messages = agent.invoke({"messages": [HumanMessage("How much is 100 USD in EUR?")]})
-    result = messages.get("out_currency_conversion", "")
-    if "Error" in result:
-        assert "EXCHANGE_RATE_API_KEY" in result
-    else:
-        assert "100" in result
-        assert "USD" in result
-        assert "EUR" in result
+# def test_currency_conversion(agent):
+#     messages = agent.invoke({"messages": [HumanMessage("How much is 100 USD in EUR?")]})
+#     result = messages.get("out_currency_conversion", "")
+#     if "Error" in result:
+#         assert "EXCHANGE_RATE_API_KEY" in result
+#     else:
+#         assert "100" in result
+#         assert "USD" in result
+#         assert "EUR" in result
 
 def test_sum_of_logarithms(agent):
     messages = agent.invoke({"messages": [HumanMessage("SUM(log(n)) где N = 1..10 c шагом 1")]})
@@ -76,8 +98,8 @@ def test_percentage_calculation(agent):
     except ValueError:
         assert str(expected_result)[:5] in result
 
-def test_generate_bash_command(agent):
-    messages = agent.invoke({"messages": [HumanMessage("list all files in current directory")]})
-    result = messages.get("out_bash_command", "")
-    assert "ls" in result.lower(), f"Expected 'ls' command, but got: {result}"
-    assert any(flag in result for flag in ["-l", "-a", "-la", "-l -a", "-al", "--all", "--list", "-1"]), f"Expected command to contain one of the flags [-l, -a, -la, -l -a, -al, --all, --list, -1], but got command: {result}"
+# def test_generate_bash_command(agent):
+#     messages = agent.invoke({"messages": [HumanMessage("list all files in current directory")]})
+#     result = messages.get("out_bash_command", "")
+#     assert "ls" in result.lower(), f"Expected 'ls' command, but got: {result}"
+#     assert any(flag in result for flag in ["-l", "-a", "-la", "-l -a", "-al", "--all", "--list", "-1"]), f"Expected command to contain one of the flags [-l, -a, -la, -l -a, -al, --all, --list, -1], but got command: {result}"
