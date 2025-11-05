@@ -36,9 +36,6 @@ async def translate_text(
     main_translation
     [possible_translation_1, possible_translation_2]""")
 
-    if llm is None:
-        llm = ChatOpenAI(model="gpt-5", temperature=1)
-
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
     response = await llm.ainvoke(messages)
@@ -67,9 +64,6 @@ async def fix_text(
     Make sure that you put the <b>tags</b> only around the words/punctuation that you've changed.
     Only return the fixed text, no explanations or other text.""")
 
-    if llm is None:
-        llm = ChatOpenAI(model="gpt-5", temperature=1)
-
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
     response = await llm.ainvoke(messages)
@@ -78,13 +72,15 @@ async def fix_text(
 
 async def explain_word(
     word: str,
-    native_language: str
+    native_language: str,
+    llm: ChatOpenAI = None
 ) -> str:
     """Explains a word in the user's native language.
 
     Parameters:
         word: The word to be explained (can be in any language).
         native_language: The user's native language (e.g., "Spanish", "Russian").
+        llm: The LLM to use for explanation.
 
     Returns:
         An explanation of the word in the user's native language.
@@ -100,8 +96,6 @@ async def explain_word(
         The word could be from any language, so identify the language and explain accordingly.
         The exaplanation should have no more than 100 words,
         and start with the query word/phrase in that {native_language}."""))
-
-    llm = ChatOpenAI(model="gpt-5-mini", temperature=1)
 
     messages = [system_message, HumanMessage(content=word)]
 
@@ -131,8 +125,34 @@ async def text_summarization(
     The summary should be no more than 2-3 (!!!!TWO or THREE!!!!) sentences and capture the main points.
     Only return the summary, no explanations or other text.""")
 
-    if llm is None:
-        llm = ChatOpenAI(model="gpt-5", temperature=1)
+    messages = [SystemMessage(system_prompt), HumanMessage(text)]
+
+    response = await llm.ainvoke(messages)
+    return response.content
+
+
+async def text_reformulation(
+    text: str,
+    llm: ChatOpenAI = None
+) -> str:
+    """Reformulates the given text in the same language with different wording.
+
+    Parameters:
+        text: The text to be reformulated.
+        llm: The LLM to use for reformulation.
+    Returns:
+        The reformulated text in the same language.
+
+    Examples:
+        text_reformulation("Hello, how are you?") returns "Hi, how's it going?"
+    """
+    system_prompt = dedent("""You are a professional writer and editor.
+    Rewrite the given text using different words and sentence structures while maintaining the same meaning.
+    Keep the same language as the original text.
+    Make the reformulation natural and fluent.
+    Preserve the original tone and style (formal/informal, professional/casual).
+    Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
+    Only return the reformulated text, no explanations or other text.""")
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
@@ -141,13 +161,15 @@ async def text_summarization(
 
 
 async def generate_bash_command(
-    text: str
+    text: str,
+    llm: ChatOpenAI = None
 ) -> str:
     """Generates a bash command based on text input.
 
     Parameters:
         text: Either an incorrect bash command or a natural language description
              of what the user wants to do with bash.
+        llm: The LLM to use for bash command generation.
     Returns:
         A valid one-liner bash command. If the command contains dangerous operations
         (like rm, mv), a warning about the risks will be included.
@@ -163,8 +185,6 @@ async def generate_bash_command(
     add a warning about the risks in the next separate line, starting with #.
     Only return the command and warning (if applicable), no explanations or other text.
     The command must be a one-liner.""")
-
-    llm = ChatOpenAI(model="gpt-5", temperature=1)
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
