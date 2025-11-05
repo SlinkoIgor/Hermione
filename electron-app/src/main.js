@@ -16,6 +16,7 @@ let lastPopupBounds = {
   x: undefined,
   y: undefined
 };
+let lastActiveTab = 0;
 
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
@@ -232,14 +233,15 @@ function createPopupWindow(responseText, isLoading = false) {
         value.forEach((item, itemIndex) => {
           const tag = item.tag || '';
           const tabName = `${key} ${tag}`.trim();
-          const isActive = startTabIndex === 0;
+          const isActive = startTabIndex === lastActiveTab;
           tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}">${tabName}</div>`);
           tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${item.value}</div>`);
           startTabIndex++;
         });
       } else {
-        tabs.push(`<div class="tab active" data-tab="0">${key}</div>`);
-        tabContents.push(`<div class="tab-content active" id="tab-0">${value}</div>`);
+        const isActive = startTabIndex === lastActiveTab;
+        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}">${key}</div>`);
+        tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${value}</div>`);
         startTabIndex = 1;
       }
     }
@@ -251,13 +253,13 @@ function createPopupWindow(responseText, isLoading = false) {
         value.forEach((item, itemIndex) => {
           const tag = item.tag || '';
           const tabName = `${key} ${tag}`.trim();
-          const isActive = globalTabIndex === 0;
+          const isActive = globalTabIndex === lastActiveTab;
           tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}">${tabName}</div>`);
           tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${item.value}</div>`);
           globalTabIndex++;
         });
       } else {
-        const isActive = globalTabIndex === 0;
+        const isActive = globalTabIndex === lastActiveTab;
         tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}">${key}</div>`);
         tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${value}</div>`);
         globalTabIndex++;
@@ -268,6 +270,13 @@ function createPopupWindow(responseText, isLoading = false) {
     if (tabs.length === 0) {
       tabs.push(`<div class="tab active" data-tab="0">No Content</div>`);
       tabContents.push(`<div class="tab-content active" id="tab-0">No content available</div>`);
+    }
+    
+    // If no tab is active (lastActiveTab is beyond current tabs), activate first tab
+    const hasActiveTab = tabs.some(tab => tab.includes('class="tab active"'));
+    if (!hasActiveTab && tabs.length > 0) {
+      tabs[0] = tabs[0].replace('class="tab"', 'class="tab active"');
+      tabContents[0] = tabContents[0].replace('class="tab-content"', 'class="tab-content active"');
     }
 
     return `
@@ -695,7 +704,22 @@ function registerShortcut() {
         let accumulatedOutput = {};
         let allComplete = false;
 
-        const updatePopup = (output, isLoading) => {
+        const updatePopup = async (output, isLoading) => {
+          // Save active tab before closing window
+          if (popupWindow && !popupWindow.isDestroyed()) {
+            try {
+              const activeIndex = await popupWindow.webContents.executeJavaScript(`
+                (() => {
+                  const activeTab = document.querySelector('.tab.active');
+                  return activeTab ? parseInt(activeTab.getAttribute('data-tab')) : 0;
+                })()
+              `);
+              lastActiveTab = activeIndex || 0;
+            } catch (e) {
+              // Ignore errors, keep last value
+            }
+          }
+          
           const responseData = {
             tool_warning: false,
             output: output
