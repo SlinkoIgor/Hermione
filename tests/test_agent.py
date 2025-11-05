@@ -5,6 +5,7 @@ from src.agent import AgentBuilder
 from src.agent_config import get_agent_config
 import numpy as np
 import re
+import asyncio
 
 @pytest.fixture(params=["openai", "litellm"])
 def provider(request):
@@ -21,13 +22,15 @@ def agent(provider):
         **config
     ).build()
 
-def test_math_formula_calculation(agent):
-    messages = agent.invoke({"messages": [HumanMessage("log10(1000 * 66)")]})
+@pytest.mark.asyncio
+async def test_math_formula_calculation(agent):
+    messages = await agent.ainvoke({"messages": [HumanMessage("log10(1000 * 66)")]})
     result = messages.get("out_math_result", "")
     assert "4.819543935541868" in result or "4.82" in result
 
-def test_word_explanation(agent):
-    messages = agent.invoke({"messages": [HumanMessage("Photosynthesis")]})
+@pytest.mark.asyncio
+async def test_word_explanation(agent):
+    messages = await agent.ainvoke({"messages": [HumanMessage("Photosynthesis")]})
     assert "out_translation" in messages
     assert "out_fixed" in messages
     fixed_text = re.sub(r'<[^>]+>', '', messages["out_fixed"])
@@ -39,8 +42,9 @@ def test_word_explanation(agent):
 #     assert "Барселоне" in result
 #     assert any(time in result for time in ["15:00", "16:00", "3 PM", "4 PM"])
 
-def test_text_translation(agent):
-    messages = agent.invoke({
+@pytest.mark.asyncio
+async def test_text_translation(agent):
+    messages = await agent.ainvoke({
         "messages": [HumanMessage(
             "The issue is that LangChain's bind_tools expects a function with a valid __name__ attribute, "
             "which classes (even callables) don't naturally have. Since functools.partial and lambda also "
@@ -69,8 +73,9 @@ def test_text_translation(agent):
 #         assert "USD" in result
 #         assert "EUR" in result
 
-def test_sum_of_logarithms(agent):
-    messages = agent.invoke({"messages": [HumanMessage("SUM(log(n)) где N = 1..10 c шагом 1")]})
+@pytest.mark.asyncio
+async def test_sum_of_logarithms(agent):
+    messages = await agent.ainvoke({"messages": [HumanMessage("SUM(log(n)) где N = 1..10 c шагом 1")]})
     result = messages.get("out_math_result", "")
     expected_result = sum(np.log(n) for n in range(1, 11))
     try:
@@ -79,8 +84,9 @@ def test_sum_of_logarithms(agent):
     except ValueError:
         assert str(expected_result)[:5] in result
 
-def test_percentage_calculation(agent):
-    messages = agent.invoke({"messages": [HumanMessage("Найдите часть от целого:\nА) 23% от 300;")]})
+@pytest.mark.asyncio
+async def test_percentage_calculation(agent):
+    messages = await agent.ainvoke({"messages": [HumanMessage("Найдите часть от целого:\nА) 23% от 300;")]})
     result = messages.get("out_math_result", "")
     expected_result = (23 / 100) * 300
     try:

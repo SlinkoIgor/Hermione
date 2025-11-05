@@ -3,6 +3,7 @@ import os
 from src.agent import AgentBuilder
 from src.agent_config import get_agent_config
 from src.tools.tz_convertor import get_current_time, get_shifted_time, convert_time
+from langchain_core.messages import HumanMessage
 
 @pytest.fixture(params=["openai", "litellm"])
 def provider(request):
@@ -22,43 +23,49 @@ def agent(provider):
         **config
     ).build()
 
-# def test_current_time_query(agent):
-#     state = agent.invoke({"messages": [{"content": "What time is it in Paris?", "type": "human"}]})
+# @pytest.mark.asyncio
+# async def test_current_time_query(agent):
+#     state = await agent.ainvoke({"messages": [HumanMessage("What time is it in Paris?")]})
 #     assert "out_tz_conversion" in state
 #     assert "Current time in Paris" in state["out_tz_conversion"]
 #     assert ":" in state["out_tz_conversion"]
 
-# def test_time_shift_query(agent):
-#     state = agent.invoke({"messages": [{"content": "What time will it be in Tokyo in 3 hours?", "type": "human"}]})
+# @pytest.mark.asyncio
+# async def test_time_shift_query(agent):
+#     state = await agent.ainvoke({"messages": [HumanMessage("What time will it be in Tokyo in 3 hours?")]})
 #     assert "out_tz_conversion" in state
 #     assert "Current time in Tokyo" in state["out_tz_conversion"]
 #     assert "in 3 hours" in state["out_tz_conversion"]
 #     assert ":" in state["out_tz_conversion"]
 
-# def test_multilingual_query(agent):
-#     state = agent.invoke({"messages": [{"content": "Сколько времени будет в Париже через 2 часа?", "type": "human"}]})
+# @pytest.mark.asyncio
+# async def test_multilingual_query(agent):
+#     state = await agent.ainvoke({"messages": [HumanMessage("Сколько времени будет в Париже через 2 часа?")]})
 #     assert "out_tz_conversion" in state
 #     assert "в Париже" in state["out_tz_conversion"]
 #     assert "часа" in state["out_tz_conversion"]
 #     assert ":" in state["out_tz_conversion"]
 
-# def test_invalid_time_format_query(agent):
-#     state = agent.invoke({"messages": [{"content": "If it's 25:00 in New York, what time is it in London?", "type": "human"}]})
+# @pytest.mark.asyncio
+# async def test_invalid_time_format_query(agent):
+#     state = await agent.ainvoke({"messages": [HumanMessage("If it's 25:00 in New York, what time is it in London?")]})
 #     assert "out_tz_conversion" in state
 #     assert "25:00 in New York" in state["out_tz_conversion"]
 #     assert "in London" in state["out_tz_conversion"]
 #     assert ":" in state["out_tz_conversion"]
 
-# def test_complex_timezone_query(agent):
-#     state = agent.invoke({"messages": [{"content": "What time will it be in Sydney in 5 hours if it's 9 AM in Los Angeles?", "type": "human"}]})
+# @pytest.mark.asyncio
+# async def test_complex_timezone_query(agent):
+#     state = await agent.ainvoke({"messages": [HumanMessage("What time will it be in Sydney in 5 hours if it's 9 AM in Los Angeles?")]})
 #     assert "out_tz_conversion" in state
 #     assert "9:00 AM in Los Angeles" in state["out_tz_conversion"]
 #     assert "in Sydney" in state["out_tz_conversion"]
 #     assert "In 5 hours" in state["out_tz_conversion"]
 #     assert ":" in state["out_tz_conversion"]
 
-# def test_timezone_accuracy(agent):
-#     state = agent.invoke({"messages": [{"content": "If it's 14:30 in Berlin, what time is it in UTC?", "type": "human"}]})
+# @pytest.mark.asyncio
+# async def test_timezone_accuracy(agent):
+#     state = await agent.ainvoke({"messages": [HumanMessage("If it's 14:30 in Berlin, what time is it in UTC?")]})
 #     assert "out_tz_conversion" in state
 #     result = state["out_tz_conversion"]
 

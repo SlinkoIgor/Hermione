@@ -1,20 +1,18 @@
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.graph import MessagesState
-from langgraph.graph import START, END, StateGraph
-from langgraph.prebuilt import ToolNode
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.tools import BaseTool
 from src.tools.function_calculator import calculate_formula
 from src.tools.tz_convertor import convert_time, get_current_time, get_shifted_time
 from src.tools.llm_tools import translate_text, fix_text, text_summarization, generate_bash_command
 from src.tools.currency_converter import convert_currency
 from src.llm_providers import get_openai_llm, get_litellm_llm
 from textwrap import dedent
-from typing import Dict, Any, List, Annotated, Literal
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.tools import BaseTool
+from typing import Dict, Any, List, Literal
+from dataclasses import dataclass, field
 import logging
 import time
 import functools
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +21,10 @@ _timing_data = []
 def timed_node(node_name):
     def decorator(func):
         @functools.wraps(func)
-        async def wrapper(state):
+        async def wrapper(*args, **kwargs):
             start_time = time.time()
             try:
-                result = await func(state)
+                result = await func(*args, **kwargs)
                 elapsed = time.time() - start_time
                 _timing_data.append({
                     "node": node_name,
@@ -164,14 +162,14 @@ router_prompt = dedent("""
     The last part (is_native_language) should be "True" if the user input is in {native_language} or "False" otherwise.
     """)
 
-def merge_tool_warning(a: bool, b: bool) -> bool:
-    return a or b
 
-class AgentState(MessagesState):
-    tasks: List[str]
-    is_native_language: bool
-    query_language: str
-    tool_warning: Annotated[bool, merge_tool_warning] = False
+@dataclass
+class AgentState:
+    messages: List[Any] = field(default_factory=list)
+    tasks: List[str] = field(default_factory=list)
+    is_native_language: bool = False
+    query_language: str = ""
+    tool_warning: bool = False
     out_tz_conversion: str = ""
     out_math_result: str = ""
     out_math_script: str = ""
@@ -181,6 +179,54 @@ class AgentState(MessagesState):
     out_fixed: str = ""
     out_tldr: str = ""
     out_text: str = ""
+
+    def update(self, updates: Dict[str, Any]):
+        for key, value in updates.items():
+            if key == "tool_warning":
+                setattr(self, key, getattr(self, key) or value)
+            elif key == "messages":
+                if isinstance(value, list):
+                    self.messages.extend(value)
+                else:
+                    self.messages.append(value)
+            else:
+                setattr(self, key, value)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "messages": self.messages,
+            "tasks": self.tasks,
+            "is_native_language": self.is_native_language,
+            "query_language": self.query_language,
+            "tool_warning": self.tool_warning,
+            "out_tz_conversion": self.out_tz_conversion,
+            "out_math_result": self.out_math_result,
+            "out_math_script": self.out_math_script,
+            "out_currency_conversion": self.out_currency_conversion,
+            "out_bash_command": self.out_bash_command,
+            "out_translation": self.out_translation,
+            "out_fixed": self.out_fixed,
+            "out_tldr": self.out_tldr,
+            "out_text": self.out_text,
+        }
+
+
+class Agent:
+    def __init__(self, builder: 'AgentBuilder'):
+        self.builder = builder
+
+    def invoke(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        import asyncio
+        return asyncio.run(self.ainvoke(input_data))
+
+    async def ainvoke(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        state = AgentState()
+        if "messages" in input_data:
+            state.messages = input_data["messages"]
+
+        await self.builder._run_agent(state)
+
+        return state.to_dict()
 
 
 class AgentBuilder:
@@ -235,187 +281,192 @@ class AgentBuilder:
 
         return {"messages": [system_message, response], "tool_warning": False}
 
-    def build(self) -> Any:
+    async def _execute_tool_calls(self, message: AIMessage) -> List[AIMessage]:
+        results = []
+        if hasattr(message, 'tool_calls') and message.tool_calls:
+            for tool_call in message.tool_calls:
+                tool_name = tool_call.get('name')
+                tool_args = tool_call.get('args', {})
 
-        @timed_node("task_router_node")
-        async def task_router_node(state: AgentState) -> Dict[str, Any]:
-            router_llm = self._get_llm(use_fast=True)
-            logger.info(f"[MODEL_INFO] task_router_node: {self._get_model_info(use_fast=True)}")
-            task_message = SystemMessage(router_prompt.format(native_language=self.native_language))
-            user_message = state["messages"][0]
-            user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
-            task_response = await router_llm.ainvoke([task_message, HumanMessage(content=user_content)])
-            parts = task_response.content.lower().split(",")
-            if "text_task" not in parts:
-                parts = ["text_task"] + parts
-            task_names = [task.strip() for task in parts[:-2]]
-            print(parts[-1])
-            query_language = parts[-2].strip()
-            is_native_language = parts[-1].strip() == "true"
+                result_content = None
+                if tool_name == 'convert_time':
+                    result_content = convert_time(**tool_args)
+                elif tool_name == 'get_current_time':
+                    result_content = get_current_time(**tool_args)
+                elif tool_name == 'get_shifted_time':
+                    result_content = get_shifted_time(**tool_args)
+                elif tool_name == 'convert_currency':
+                    result_content = convert_currency(**tool_args)
 
-            print("is_native_language", is_native_language, "query_language", query_language, "native_language", self.native_language)
+                if result_content is not None:
+                    results.append(AIMessage(content=str(result_content)))
 
-            return {"tasks": task_names,
-                    "is_native_language": is_native_language,
-                    "query_language": query_language,
-                    "out_text": user_message.content}
+        return results
 
-        def routing_function(state: AgentState) -> list[str]:
-            routes = []
-            for task in state["tasks"]:
-                if task == "text_task":
-                    if len(state["messages"][0].content.split()) > 100:
-                        routes.append("text_summarization_node")
-                    routes.append("text_translation_node")
-                    routes.append("text_fix_node")
-                elif task == "math_formula_calculation":
-                    routes.append(f"{task}_node")
-                # elif task == "tz_conversion":
-                #     routes.append(f"{task}_node")
-                # elif task == "currency_conversion":
-                #     routes.append(f"{task}_node")
-                # elif task == "bash_command":
-                #     routes.append(f"{task}_node")
-            return routes
+    @timed_node("task_router_node")
+    async def _task_router_node(self, state: AgentState) -> Dict[str, Any]:
+        router_llm = self._get_llm(use_fast=True)
+        logger.info(f"[MODEL_INFO] task_router_node: {self._get_model_info(use_fast=True)}")
+        task_message = SystemMessage(router_prompt.format(native_language=self.native_language))
+        user_message = state.messages[0]
+        user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
+        task_response = await router_llm.ainvoke([task_message, HumanMessage(content=user_content)])
+        parts = task_response.content.lower().split(",")
+        if "text_task" not in parts:
+            parts = ["text_task"] + parts
+        task_names = [task.strip() for task in parts[:-2]]
+        print(parts[-1])
+        query_language = parts[-2].strip()
+        is_native_language = parts[-1].strip() == "true"
 
-        @timed_node("text_translation_node")
-        async def text_translation_node(state: AgentState) -> Dict[str, Any]:
-            llm = self._get_llm(use_fast=False)
-            logger.info(f"[MODEL_INFO] text_translation_node: {self._get_model_info(use_fast=False)}")
-            translated_text = await translate_text(
-                text=state["messages"][0].content,
-                native_language=self.native_language,
-                target_language=self.target_language,
-                is_native_language=state["is_native_language"],
-                llm=llm
-            )
-            return {"out_translation": translated_text}
+        print("is_native_language", is_native_language, "query_language", query_language, "native_language", self.native_language)
 
-        @timed_node("text_fix_node")
-        async def text_fix_node(state: AgentState) -> Dict[str, Any]:
-            llm = self._get_llm(use_fast=False)
-            logger.info(f"[MODEL_INFO] text_fix_node: {self._get_model_info(use_fast=False)}")
-            fixed_text = await fix_text(
-                text=state["messages"][0].content,
-                llm=llm
-            )
-            return {"out_fixed": fixed_text}
+        return {"tasks": task_names,
+                "is_native_language": is_native_language,
+                "query_language": query_language,
+                "out_text": user_message.content}
 
-        @timed_node("text_summarization_node")
-        async def text_summarization_node(state: AgentState) -> Dict[str, Any]:
-            llm = self._get_llm(use_fast=False)
-            logger.info(f"[MODEL_INFO] text_summarization_node: {self._get_model_info(use_fast=False)}")
-            return {"out_tldr": await text_summarization(
-                text=state["messages"][0].content,
-                native_language=self.native_language,
-                llm=llm)}
+    def _get_routes(self, state: AgentState) -> list[str]:
+        routes = []
+        for task in state.tasks:
+            if task == "text_task":
+                if len(state.messages[0].content.split()) > 100:
+                    routes.append("text_summarization_node")
+                routes.append("text_translation_node")
+                routes.append("text_fix_node")
+            elif task == "math_formula_calculation":
+                routes.append(f"{task}_node")
+        return routes
 
-        @timed_node("tz_conversion_node")
-        async def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
-            system_msg = SystemMessage(
-                time_zone_prompt.format(current_location=self.current_location, query_language=state["query_language"]))
-            return await self.invoke_llm_with_tools(
-                tools=[convert_time, get_current_time, get_shifted_time],
-                system_message=system_msg,
-                user_message=state["messages"][0]
-            )
+    @timed_node("text_translation_node")
+    async def _text_translation_node(self, state: AgentState) -> Dict[str, Any]:
+        llm = self._get_llm(use_fast=False)
+        logger.info(f"[MODEL_INFO] text_translation_node: {self._get_model_info(use_fast=False)}")
+        translated_text = await translate_text(
+            text=state.messages[0].content,
+            native_language=self.native_language,
+            target_language=self.target_language,
+            is_native_language=state.is_native_language,
+            llm=llm
+        )
+        return {"out_translation": translated_text}
 
-        @timed_node("tz_conversion_outro_node")
-        async def tz_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
-            tz_conversion_llm = self._get_llm(use_fast=True)
-            logger.info(f"[MODEL_INFO] tz_conversion_outro_node: {self._get_model_info(use_fast=True)}")
-            response = await tz_conversion_llm.ainvoke(state["messages"])
-            return {"out_tz_conversion": response.content}
+    @timed_node("text_fix_node")
+    async def _text_fix_node(self, state: AgentState) -> Dict[str, Any]:
+        llm = self._get_llm(use_fast=False)
+        logger.info(f"[MODEL_INFO] text_fix_node: {self._get_model_info(use_fast=False)}")
+        fixed_text = await fix_text(
+            text=state.messages[0].content,
+            llm=llm
+        )
+        return {"out_fixed": fixed_text}
 
-        @timed_node("math_formula_calculation_node")
-        async def math_formula_calculation_node(state: AgentState) -> Dict[str, Any]:
-            math_formula_calculation_llm = self._get_llm(use_fast=True)
-            logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=True)}")
-            response = await math_formula_calculation_llm.ainvoke([SystemMessage(math_formula_calculation_prompt), state["messages"][0]])
-            calculation_result = calculate_formula(response.content)
-            return {
-                "out_math_result": str(calculation_result),
-                "out_math_script": response.content
-            }
+    @timed_node("text_summarization_node")
+    async def _text_summarization_node(self, state: AgentState) -> Dict[str, Any]:
+        llm = self._get_llm(use_fast=False)
+        logger.info(f"[MODEL_INFO] text_summarization_node: {self._get_model_info(use_fast=False)}")
+        return {"out_tldr": await text_summarization(
+            text=state.messages[0].content,
+            native_language=self.native_language,
+            llm=llm)}
 
-        @timed_node("currency_conversion_node")
-        async def currency_conversion_node(state: AgentState) -> Dict[str, Any]:
-            system_msg = SystemMessage(
-                currency_conversion_prompt.format(native_currency=self.native_currency))
-            return await self.invoke_llm_with_tools(
-                tools=[convert_currency],
-                system_message=system_msg,
-                user_message=state["messages"][0]
-            )
+    @timed_node("tz_conversion_node")
+    async def _tz_conversion_node(self, state: AgentState) -> Dict[str, Any]:
+        system_msg = SystemMessage(
+            time_zone_prompt.format(current_location=self.current_location, query_language=state.query_language))
+        return await self.invoke_llm_with_tools(
+            tools=[convert_time, get_current_time, get_shifted_time],
+            system_message=system_msg,
+            user_message=state.messages[0]
+        )
 
-        @timed_node("currency_conversion_outro_node")
-        async def currency_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
-            last_message = state["messages"][-1]
-            result = ""
+    @timed_node("tz_conversion_outro_node")
+    async def _tz_conversion_outro_node(self, state: AgentState) -> Dict[str, Any]:
+        tz_conversion_llm = self._get_llm(use_fast=True)
+        logger.info(f"[MODEL_INFO] tz_conversion_outro_node: {self._get_model_info(use_fast=True)}")
+        response = await tz_conversion_llm.ainvoke(state.messages)
+        return {"out_tz_conversion": response.content}
 
-            if hasattr(last_message, 'content'):
-                try:
-                    import ast
-                    result_dict = ast.literal_eval(last_message.content)
+    @timed_node("math_formula_calculation_node")
+    async def _math_formula_calculation_node(self, state: AgentState) -> Dict[str, Any]:
+        math_formula_calculation_llm = self._get_llm(use_fast=True)
+        logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=True)}")
+        response = await math_formula_calculation_llm.ainvoke([SystemMessage(math_formula_calculation_prompt), state.messages[0]])
+        calculation_result = calculate_formula(response.content)
+        return {
+            "out_math_result": str(calculation_result),
+            "out_math_script": response.content
+        }
 
-                    conversion_result = result_dict.get('result')
-                    amount = result_dict.get('amount', 0)
-                    source_currency = result_dict.get('source_currency', '')
-                    target_currency = result_dict.get('target_currency', '')
+    @timed_node("currency_conversion_node")
+    async def _currency_conversion_node(self, state: AgentState) -> Dict[str, Any]:
+        system_msg = SystemMessage(
+            currency_conversion_prompt.format(native_currency=self.native_currency))
+        return await self.invoke_llm_with_tools(
+            tools=[convert_currency],
+            system_message=system_msg,
+            user_message=state.messages[0]
+        )
 
-                    if conversion_result is not None:
-                        result = f"{amount} {source_currency} == {conversion_result:.2f} {target_currency}"
-                    else:
-                        error_msg = result_dict.get('error', 'Unknown error')
-                        result = f"Error: {error_msg}"
-                except (ValueError, SyntaxError):
-                    result = "Error: Could not parse currency conversion result"
-            else:
-                result = "Error: Could not extract currency conversion result"
+    @timed_node("currency_conversion_outro_node")
+    async def _currency_conversion_outro_node(self, state: AgentState) -> Dict[str, Any]:
+        last_message = state.messages[-1]
+        result = ""
 
-            return {"messages": [AIMessage("")], "out_currency_conversion": result}
+        if hasattr(last_message, 'content'):
+            try:
+                import ast
+                result_dict = ast.literal_eval(last_message.content)
 
-        @timed_node("bash_command_node")
-        async def bash_command_node(state: AgentState) -> Dict[str, Any]:
-            bash_command = await generate_bash_command(state["messages"][0].content)
-            return {"out_bash_command": bash_command}
+                conversion_result = result_dict.get('result')
+                amount = result_dict.get('amount', 0)
+                source_currency = result_dict.get('source_currency', '')
+                target_currency = result_dict.get('target_currency', '')
 
-        builder = StateGraph(AgentState)
+                if conversion_result is not None:
+                    result = f"{amount} {source_currency} == {conversion_result:.2f} {target_currency}"
+                else:
+                    error_msg = result_dict.get('error', 'Unknown error')
+                    result = f"Error: {error_msg}"
+            except (ValueError, SyntaxError):
+                result = "Error: Could not parse currency conversion result"
+        else:
+            result = "Error: Could not extract currency conversion result"
 
-        builder.add_node(task_router_node)
-        builder.add_node(text_translation_node)
-        builder.add_node(text_fix_node)
-        builder.add_node(text_summarization_node)
-        builder.add_node(tz_conversion_node)
-        builder.add_node(math_formula_calculation_node)
-        builder.add_node(currency_conversion_node)
-        builder.add_node(currency_conversion_outro_node)
-        builder.add_node(bash_command_node)
+        return {"messages": [AIMessage("")], "out_currency_conversion": result}
 
-        builder.add_node(ToolNode(tools=[convert_time], name="tz_conversion_tool_node"))
-        builder.add_node(tz_conversion_outro_node)
-        builder.add_node(ToolNode(tools=[convert_currency], name="currency_conversion_tool_node"))
+    @timed_node("bash_command_node")
+    async def _bash_command_node(self, state: AgentState) -> Dict[str, Any]:
+        bash_command = await generate_bash_command(state.messages[0].content)
+        return {"out_bash_command": bash_command}
 
-        builder.add_edge(START, "task_router_node")
-        builder.add_conditional_edges("task_router_node", routing_function)
+    async def _run_agent(self, state: AgentState):
+        result = await self._task_router_node(state)
+        state.update(result)
 
-        builder.add_edge("text_translation_node", END)
-        builder.add_edge("text_fix_node", END)
-        builder.add_edge("text_summarization_node", END)
+        routes = self._get_routes(state)
 
-        builder.add_edge("tz_conversion_node", "tz_conversion_tool_node")
-        builder.add_edge("tz_conversion_tool_node", "tz_conversion_outro_node")
-        builder.add_edge("tz_conversion_outro_node", END)
+        tasks = []
+        for route in routes:
+            if route == "text_translation_node":
+                tasks.append(self._text_translation_node(state))
+            elif route == "text_fix_node":
+                tasks.append(self._text_fix_node(state))
+            elif route == "text_summarization_node":
+                tasks.append(self._text_summarization_node(state))
+            elif route == "math_formula_calculation_node":
+                tasks.append(self._math_formula_calculation_node(state))
 
-        builder.add_edge("math_formula_calculation_node", END)
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Task failed: {result}")
+                else:
+                    state.update(result)
 
-        builder.add_edge("currency_conversion_node", "currency_conversion_tool_node")
-        builder.add_edge("currency_conversion_tool_node", "currency_conversion_outro_node")
-        builder.add_edge("currency_conversion_outro_node", END)
-
-        builder.add_edge("bash_command_node", END)
-
-        return builder.compile()
+    def build(self) -> Agent:
+        return Agent(self)
 
 
 if __name__ == "__main__":
