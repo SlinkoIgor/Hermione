@@ -485,7 +485,9 @@ class AgentBuilder:
         bash_command = await generate_bash_command(state.messages[0].content)
         return {"out_bash_command": bash_command}
 
-    def _get_tag_for_model(self, model_name: str) -> str:
+    def _get_tag_for_model(self, model_name: str, num_models: int = 1) -> str:
+        if num_models <= 1:
+            return ""
         if "gemini" in model_name.lower():
             return "[g]"
         elif "gpt" in model_name.lower():
@@ -513,6 +515,7 @@ class AgentBuilder:
             llms = [llms]
             model_names = [model_names[0]] if isinstance(model_names, list) else [model_names]
 
+        num_models = len(llms)
         tasks_list = []
         metadata_list = []
 
@@ -554,7 +557,7 @@ class AgentBuilder:
                         
                         output_key = metadata["output_key"]
                         model_name = metadata["model"]
-                        tag = self._get_tag_for_model(model_name)
+                        tag = self._get_tag_for_model(model_name, num_models)
                         
                         for key, value in result.items():
                             if key.startswith("out_"):
@@ -580,6 +583,7 @@ class AgentBuilder:
             llms = [llms]
             model_names = [model_names[0]] if isinstance(model_names, list) else [model_names]
 
+        num_models = len(llms)
         tasks = []
         task_metadata = []
 
@@ -615,7 +619,7 @@ class AgentBuilder:
                 metadata = task_metadata[i]
                 output_key = metadata["output_key"]
                 model_name = metadata["model"]
-                tag = self._get_tag_for_model(model_name)
+                tag = self._get_tag_for_model(model_name, num_models)
                 
                 if output_key not in aggregated:
                     aggregated[output_key] = []

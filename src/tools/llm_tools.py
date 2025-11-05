@@ -32,9 +32,9 @@ async def translate_text(
     Only return the translated text (or word), no explanations or other text.
     Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
 
-    If it's a word (or two words) not a text, then return 1 main translation and 2 possible translations with the following format:
+    If it's a word (or two words) not a text, then return 1 main translation and 4 possible translations with the following format:
     main_translation
-    [possible_translation_1, possible_translation_2]""")
+    [possible_translation_1, possible_translation_2, possible_translation_3, possible_translation_4]""")
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
