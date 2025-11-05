@@ -2,6 +2,7 @@ import pytest
 import os
 from langchain_core.messages import HumanMessage
 from src.agent import AgentBuilder
+from src.agent_config import get_agent_config
 import numpy as np
 import re
 
@@ -13,22 +14,12 @@ def provider(request):
 
 @pytest.fixture
 def agent(provider):
-    if provider == "openai":
-        return AgentBuilder(
-            native_currency="EUR",
-            provider=provider,
-            base_model="gpt-5",
-            fast_model="gpt-5-mini",
-            thinking_budget=1000
-        ).build()
-    else:
-        return AgentBuilder(
-            native_currency="EUR",
-            provider=provider,
-            base_model="gemini-2.5-pro",
-            fast_model="gemini-2.5-flash",
-            thinking_budget=1000
-        ).build()
+    config = get_agent_config(provider=provider, thinking_budget=1000)
+    return AgentBuilder(
+        native_currency="EUR",
+        provider=provider,
+        **config
+    ).build()
 
 def test_math_formula_calculation(agent):
     messages = agent.invoke({"messages": [HumanMessage("log10(1000 * 66)")]})

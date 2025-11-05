@@ -23,19 +23,22 @@ def get_litellm_llm(model_name: str, temperature: float = 1, thinking_budget: in
     api_key = os.environ.get("LITELLM_API_KEY")
     if not api_key:
         raise ValueError("LITELLM_API_KEY environment variable is not set.")
-    
-    model_kwargs = {}
+
+    kwargs = {
+        "model": model_name,
+        "temperature": temperature,
+        "openai_api_key": api_key,
+        "openai_api_base": LITELLM_HOST
+    }
+
     if thinking_budget is not None:
+        model_kwargs = {}
         if "gemini" in model_name.lower():
             model_kwargs["reasoning_effort"] = "low"
         elif "gpt" in model_name.lower():
             model_kwargs["reasoning_effort"] = "low"
-    
-    return ChatOpenAI(
-        model=model_name,
-        temperature=temperature,
-        openai_api_key=api_key,
-        openai_api_base=LITELLM_HOST,
-        model_kwargs=model_kwargs if model_kwargs else None
-    )
+        if model_kwargs:
+            kwargs["model_kwargs"] = model_kwargs
+
+    return ChatOpenAI(**kwargs)
 

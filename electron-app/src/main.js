@@ -20,9 +20,9 @@ let lastPopupBounds = {
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
 const DEFAULT_PORT = 8123;
-const API_PORT = process.env.API_PORT || (IS_DEV ? 8124 : DEFAULT_PORT);
+const API_PORT = process.env.API_PORT || DEFAULT_PORT;
 const API_HOST = '127.0.0.1';
-const PROVIDER_MODE = process.env.PROVIDER_MODE || 'both';
+const PROVIDER_MODE = process.env.PROVIDER_MODE || 'litellm_only';
 
 // Path to the Python executable in the virtual environment
 const pythonPath = IS_DEV

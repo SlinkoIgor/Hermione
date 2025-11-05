@@ -1,6 +1,7 @@
 import pytest
 import os
 from src.agent import AgentBuilder
+from src.agent_config import get_agent_config
 from src.tools.tz_convertor import get_current_time, get_shifted_time, convert_time
 
 @pytest.fixture(params=["openai", "litellm"])
@@ -11,26 +12,15 @@ def provider(request):
 
 @pytest.fixture
 def agent(provider):
-    if provider == "openai":
-        return AgentBuilder(
-            native_language="English",
-            target_language="English",
-            native_currency="EUR",
-            current_location="Europe/London",
-            provider=provider,
-            base_model="gpt-5",
-            fast_model="gpt-5-mini"
-        ).build()
-    else:
-        return AgentBuilder(
-            native_language="English",
-            target_language="English",
-            native_currency="EUR",
-            current_location="Europe/London",
-            provider=provider,
-            base_model="gemini-2.5-pro",
-            fast_model="gemini-2.5-flash"
-        ).build()
+    config = get_agent_config(provider=provider)
+    return AgentBuilder(
+        native_language="English",
+        target_language="English",
+        native_currency="EUR",
+        current_location="Europe/London",
+        provider=provider,
+        **config
+    ).build()
 
 # def test_current_time_query(agent):
 #     state = agent.invoke({"messages": [{"content": "What time is it in Paris?", "type": "human"}]})

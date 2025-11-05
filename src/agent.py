@@ -23,10 +23,10 @@ _timing_data = []
 def timed_node(node_name):
     def decorator(func):
         @functools.wraps(func)
-        def wrapper(state):
+        async def wrapper(state):
             start_time = time.time()
             try:
-                result = func(state)
+                result = await func(state)
                 elapsed = time.time() - start_time
                 _timing_data.append({
                     "node": node_name,
@@ -213,7 +213,12 @@ class AgentBuilder:
         else:
             return get_openai_llm(model_name, self.temperature, self.thinking_budget)
 
-    def invoke_llm_with_tools(
+    def _get_model_info(self, use_fast: bool = False) -> str:
+        model_name = self.fast_model if use_fast else self.base_model
+        reasoning_effort = "low" if self.thinking_budget is not None else "None"
+        return f"provider={self.provider}, model={model_name}, reasoning_effort={reasoning_effort}"
+
+    async def invoke_llm_with_tools(
         self,
         tools: List[BaseTool],
         system_message: SystemMessage,
@@ -222,7 +227,7 @@ class AgentBuilder:
         use_fast: bool = False
     ) -> Dict[str, Any]:
         llm = self._get_llm(use_fast=use_fast).bind_tools(tools, parallel_tool_calls=False)
-        response = llm.invoke([system_message, user_message])
+        response = await llm.ainvoke([system_message, user_message])
 
         if check_tool_calls and not any(hasattr(msg, 'tool_calls') and msg.tool_calls for msg in [response]):
             logger.warning("Tool wasn't called in the response")
@@ -233,12 +238,13 @@ class AgentBuilder:
     def build(self) -> Any:
 
         @timed_node("task_router_node")
-        def task_router_node(state: AgentState) -> Dict[str, Any]:
+        async def task_router_node(state: AgentState) -> Dict[str, Any]:
             router_llm = self._get_llm(use_fast=True)
+            logger.info(f"[MODEL_INFO] task_router_node: {self._get_model_info(use_fast=True)}")
             task_message = SystemMessage(router_prompt.format(native_language=self.native_language))
             user_message = state["messages"][0]
             user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
-            task_response = router_llm.invoke([task_message, HumanMessage(content=user_content)])
+            task_response = await router_llm.ainvoke([task_message, HumanMessage(content=user_content)])
             parts = task_response.content.lower().split(",")
             if "text_task" not in parts:
                 parts = ["text_task"] + parts
@@ -273,48 +279,59 @@ class AgentBuilder:
             return routes
 
         @timed_node("text_translation_node")
-        def text_translation_node(state: AgentState) -> Dict[str, Any]:
-            translated_text = translate_text(
+        async def text_translation_node(state: AgentState) -> Dict[str, Any]:
+            llm = self._get_llm(use_fast=False)
+            logger.info(f"[MODEL_INFO] text_translation_node: {self._get_model_info(use_fast=False)}")
+            translated_text = await translate_text(
                 text=state["messages"][0].content,
                 native_language=self.native_language,
                 target_language=self.target_language,
                 is_native_language=state["is_native_language"],
+                llm=llm
             )
             return {"out_translation": translated_text}
 
         @timed_node("text_fix_node")
-        def text_fix_node(state: AgentState) -> Dict[str, Any]:
-            fixed_text = fix_text(
-                text=state["messages"][0].content
+        async def text_fix_node(state: AgentState) -> Dict[str, Any]:
+            llm = self._get_llm(use_fast=False)
+            logger.info(f"[MODEL_INFO] text_fix_node: {self._get_model_info(use_fast=False)}")
+            fixed_text = await fix_text(
+                text=state["messages"][0].content,
+                llm=llm
             )
             return {"out_fixed": fixed_text}
 
         @timed_node("text_summarization_node")
-        def text_summarization_node(state: AgentState) -> Dict[str, Any]:
-            return {"out_tldr": text_summarization(
+        async def text_summarization_node(state: AgentState) -> Dict[str, Any]:
+            llm = self._get_llm(use_fast=False)
+            logger.info(f"[MODEL_INFO] text_summarization_node: {self._get_model_info(use_fast=False)}")
+            return {"out_tldr": await text_summarization(
                 text=state["messages"][0].content,
-                native_language=self.native_language)}
+                native_language=self.native_language,
+                llm=llm)}
 
         @timed_node("tz_conversion_node")
-        def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
+        async def tz_conversion_node(state: AgentState) -> Dict[str, Any]:
             system_msg = SystemMessage(
                 time_zone_prompt.format(current_location=self.current_location, query_language=state["query_language"]))
-            return self.invoke_llm_with_tools(
+            return await self.invoke_llm_with_tools(
                 tools=[convert_time, get_current_time, get_shifted_time],
                 system_message=system_msg,
                 user_message=state["messages"][0]
             )
 
         @timed_node("tz_conversion_outro_node")
-        def tz_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
+        async def tz_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
             tz_conversion_llm = self._get_llm(use_fast=True)
-            response = tz_conversion_llm.invoke(state["messages"])
+            logger.info(f"[MODEL_INFO] tz_conversion_outro_node: {self._get_model_info(use_fast=True)}")
+            response = await tz_conversion_llm.ainvoke(state["messages"])
             return {"out_tz_conversion": response.content}
 
         @timed_node("math_formula_calculation_node")
-        def math_formula_calculation_node(state: AgentState) -> Dict[str, Any]:
+        async def math_formula_calculation_node(state: AgentState) -> Dict[str, Any]:
             math_formula_calculation_llm = self._get_llm(use_fast=True)
-            response = math_formula_calculation_llm.invoke([SystemMessage(math_formula_calculation_prompt), state["messages"][0]])
+            logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=True)}")
+            response = await math_formula_calculation_llm.ainvoke([SystemMessage(math_formula_calculation_prompt), state["messages"][0]])
             calculation_result = calculate_formula(response.content)
             return {
                 "out_math_result": str(calculation_result),
@@ -322,17 +339,17 @@ class AgentBuilder:
             }
 
         @timed_node("currency_conversion_node")
-        def currency_conversion_node(state: AgentState) -> Dict[str, Any]:
+        async def currency_conversion_node(state: AgentState) -> Dict[str, Any]:
             system_msg = SystemMessage(
                 currency_conversion_prompt.format(native_currency=self.native_currency))
-            return self.invoke_llm_with_tools(
+            return await self.invoke_llm_with_tools(
                 tools=[convert_currency],
                 system_message=system_msg,
                 user_message=state["messages"][0]
             )
 
         @timed_node("currency_conversion_outro_node")
-        def currency_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
+        async def currency_conversion_outro_node(state: AgentState) -> Dict[str, Any]:
             last_message = state["messages"][-1]
             result = ""
 
@@ -359,8 +376,8 @@ class AgentBuilder:
             return {"messages": [AIMessage("")], "out_currency_conversion": result}
 
         @timed_node("bash_command_node")
-        def bash_command_node(state: AgentState) -> Dict[str, Any]:
-            bash_command = generate_bash_command(state["messages"][0].content)
+        async def bash_command_node(state: AgentState) -> Dict[str, Any]:
+            bash_command = await generate_bash_command(state["messages"][0].content)
             return {"out_bash_command": bash_command}
 
         builder = StateGraph(AgentState)

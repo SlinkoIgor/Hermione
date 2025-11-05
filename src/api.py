@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Literal
 import uvicorn
 from agent import AgentBuilder
+from agent_config import get_agent_config
 import json
 from langchain_core.messages import HumanMessage
 import logging
@@ -14,9 +15,9 @@ import sys
 import os
 import signal
 import asyncio
+import httpx
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
-from concurrent.futures import ThreadPoolExecutor
 
 # Load environment variables from .env file in the root directory
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
@@ -57,9 +58,6 @@ shutdown_event = asyncio.Event()
 
 # Global agent variable
 agent = None
-
-# Thread pool executor for running synchronous agent invocations
-executor = ThreadPoolExecutor(max_workers=4)
 
 # Get environment variables
 DEFAULT_PORT = 8123
@@ -137,40 +135,74 @@ app.add_middleware(
 
 class SimpleRequest(BaseModel):
     content: str
-    provider_mode: Literal["openai_only", "litellm_only", "both"] = "openai_only"
+    provider_mode: Literal["openai_only", "litellm_only", "both"] = "litellm_only"
+
+async def check_litellm_availability() -> bool:
+    """Check if LiteLLM API is available."""
+    try:
+        litellm_host = os.getenv("LITELLM_HOST", "https://api.litellm.ai")
+        api_key = os.environ.get("LITELLM_API_KEY")
+
+        if not api_key:
+            logger.warning("LITELLM_API_KEY not set, LiteLLM unavailable")
+            return False
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            test_payload = {
+                "model": "gemini-2.5-flash-lite",
+                "messages": [{"role": "user", "content": "test"}],
+                "max_tokens": 1
+            }
+            response = await client.post(f"{litellm_host}/chat/completions", headers=headers, json=test_payload)
+            is_available = 200 <= response.status_code < 300
+            if not is_available:
+                logger.warning(f"LiteLLM availability check failed with status {response.status_code}")
+            else:
+                logger.info("LiteLLM is available")
+            return is_available
+    except Exception as e:
+        logger.warning(f"LiteLLM availability check failed: {e}")
+        return False
+
+async def get_providers_to_run(provider_mode: str) -> list[str]:
+    """Get list of providers based on provider_mode setting and availability."""
+    providers = []
+
+    if provider_mode == "openai_only":
+        providers.append("openai")
+    elif provider_mode == "litellm_only":
+        litellm_available = await check_litellm_availability()
+        if litellm_available:
+            providers.append("litellm")
+        else:
+            logger.warning("LiteLLM unavailable, falling back to OpenAI")
+            providers.append("openai")
+    elif provider_mode == "both":
+        litellm_available = await check_litellm_availability()
+        providers.append("openai")
+        if litellm_available:
+            providers.append("litellm")
+        else:
+            logger.warning("LiteLLM unavailable, using OpenAI only")
+
+    return providers
 
 async def run_agent_async(provider: str, human_message: HumanMessage) -> tuple[str, Dict[str, Any], bool]:
     """Run an agent asynchronously and return provider name, result, and tool_warning."""
     try:
         logger.info(f"Running agent with provider: {provider}")
-        if provider == "openai":
-            agent_instance = AgentBuilder(
-                provider=provider,
-                base_model="gpt-5",
-                fast_model="gpt-5-mini"
-            ).build()
-        else:
-            agent_instance = AgentBuilder(
-                provider=provider,
-                base_model="gemini-2.5-pro",
-                fast_model="gemini-2.5-flash"
-            ).build()
+        config = get_agent_config(provider=provider)
+        agent_instance = AgentBuilder(provider=provider, **config).build()
 
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            executor,
-            agent_instance.invoke,
-            {"messages": [human_message]}
-        )
+        result = await agent_instance.ainvoke({"messages": [human_message]})
         tool_warning = result.get("tool_warning", False)
 
         output = {}
         for key, value in result.items():
             if key.startswith("out_") and value:
                 output_key = key[4:]
-                if output_key == "text":
-                    continue
-                if provider == "litellm":
+                if provider == "litellm" and output_key != "text":
                     output_key = f"🚄{output_key}"
                 output[output_key] = value
 
@@ -195,12 +227,7 @@ async def run(request: SimpleRequest):
         user_message = request.content
         human_message = HumanMessage(content=user_message)
 
-        providers_to_run = []
-        if request.provider_mode == "openai_only" or request.provider_mode == "both":
-            providers_to_run.append("openai")
-        if request.provider_mode == "litellm_only" or request.provider_mode == "both":
-            providers_to_run.append("litellm")
-
+        providers_to_run = await get_providers_to_run(request.provider_mode)
         all_results = {}
         tool_warnings = []
 
@@ -245,12 +272,7 @@ async def run_stream(request: SimpleRequest):
             user_message = request.content
             human_message = HumanMessage(content=user_message)
 
-            providers_to_run = []
-            if request.provider_mode == "openai_only" or request.provider_mode == "both":
-                providers_to_run.append("openai")
-            if request.provider_mode == "litellm_only" or request.provider_mode == "both":
-                providers_to_run.append("litellm")
-
+            providers_to_run = await get_providers_to_run(request.provider_mode)
             all_results = {}
             tool_warnings = []
             completed_providers = set()

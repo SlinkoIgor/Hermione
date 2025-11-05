@@ -3,11 +3,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from textwrap import dedent
 
 
-def translate_text(
+async def translate_text(
     text: str,
     native_language: str,
     target_language: str,
-    is_native_language: bool
+    is_native_language: bool,
+    llm: ChatOpenAI = None
 ) -> str:
     """Translates text to the specified target language.
 
@@ -16,6 +17,7 @@ def translate_text(
         native_language: The user's native language (e.g., "English", "Spanish", "Russian").
         target_language: The target language for translation (e.g., "English", "Spanish", "Russian").
         is_native_language: Whether the text is in the native language (True or False).
+        llm: The LLM to use for translation. If None, creates a default ChatOpenAI instance.
     Returns:
         The translated text in the target language.
 
@@ -34,22 +36,24 @@ def translate_text(
     main_translation
     [possible_translation_1, possible_translation_2]""")
 
-    llm = ChatOpenAI(model="gpt-5", temperature=1)
+    if llm is None:
+        llm = ChatOpenAI(model="gpt-5", temperature=1)
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
-    response = llm.invoke(messages)
+    response = await llm.ainvoke(messages)
     return response.content
 
 
-def fix_text(
+async def fix_text(
     text: str,
+    llm: ChatOpenAI = None
 ) -> str:
     """Fixes grammar in the original text.
 
     Parameters:
         text: The text to be fixed.
-        language: The language of the input text.
+        llm: The LLM to use for fixing. If None, creates a default ChatOpenAI instance.
     Returns:
         The text with grammar fixes.
     """
@@ -62,15 +66,16 @@ def fix_text(
     Preserve the original formatting (tabs, line breaks, etc.) in the text.
     Only return the fixed text, no explanations or other text.""")
 
-    llm = ChatOpenAI(model="gpt-5", temperature=1)
+    if llm is None:
+        llm = ChatOpenAI(model="gpt-5", temperature=1)
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
-    response = llm.invoke(messages)
+    response = await llm.ainvoke(messages)
     return response.content
 
 
-def explain_word(
+async def explain_word(
     word: str,
     native_language: str
 ) -> str:
@@ -99,19 +104,21 @@ def explain_word(
 
     messages = [system_message, HumanMessage(content=word)]
 
-    response = llm.invoke(messages)
+    response = await llm.ainvoke(messages)
     return response.content
 
 
-def text_summarization(
+async def text_summarization(
     text: str,
-    native_language: str
+    native_language: str,
+    llm: ChatOpenAI = None
 ) -> str:
     """Summarizes text into a TL;DR in the native language.
 
     Parameters:
         text: The text to be summarized.
         native_language: The user's native language (e.g., "English", "Spanish", "Russian").
+        llm: The LLM to use for summarization. If None, creates a default ChatOpenAI instance.
     Returns:
         A concise summary of the text in the native language.
 
@@ -123,15 +130,16 @@ def text_summarization(
     The summary should be no more than 2-3 (!!!!TWO or THREE!!!!) sentences and capture the main points.
     Only return the summary, no explanations or other text.""")
 
-    llm = ChatOpenAI(model="gpt-5", temperature=1)
+    if llm is None:
+        llm = ChatOpenAI(model="gpt-5", temperature=1)
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
-    response = llm.invoke(messages)
+    response = await llm.ainvoke(messages)
     return response.content
 
 
-def generate_bash_command(
+async def generate_bash_command(
     text: str
 ) -> str:
     """Generates a bash command based on text input.
@@ -159,7 +167,7 @@ def generate_bash_command(
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
-    response = llm.invoke(messages)
+    response = await llm.ainvoke(messages)
     response_content = response.content
     if response_content.startswith("```bash"):
         response_content = response_content[len("```bash"):].strip()
