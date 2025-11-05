@@ -147,7 +147,7 @@ async def check_litellm_availability() -> bool:
             logger.warning("LITELLM_API_KEY not set, LiteLLM unavailable")
             return False
 
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             test_payload = {
                 "model": "gemini-2.5-flash-lite",
@@ -157,12 +157,12 @@ async def check_litellm_availability() -> bool:
             response = await client.post(f"{litellm_host}/chat/completions", headers=headers, json=test_payload)
             is_available = 200 <= response.status_code < 300
             if not is_available:
-                logger.warning(f"LiteLLM availability check failed with status {response.status_code}")
+                logger.warning(f"LiteLLM availability check failed with status {response.status_code}: {response.text}")
             else:
                 logger.info("LiteLLM is available")
             return is_available
     except Exception as e:
-        logger.warning(f"LiteLLM availability check failed: {e}")
+        logger.warning(f"LiteLLM availability check failed: {type(e).__name__}: {str(e)}")
         return False
 
 async def get_providers_to_run(provider_mode: str) -> list[str]:
@@ -202,9 +202,11 @@ async def run_agent_async(provider: str, human_message: HumanMessage) -> tuple[s
         for key, value in result.items():
             if key.startswith("out_") and value:
                 output_key = key[4:]
-                if provider == "litellm" and output_key != "text":
-                    output_key = f"🚄{output_key}"
-                output[output_key] = value
+                
+                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                    output[output_key] = value
+                else:
+                    output[output_key] = value
 
         return provider, output, tool_warning
     except Exception as e:
@@ -212,6 +214,32 @@ async def run_agent_async(provider: str, human_message: HumanMessage) -> tuple[s
         if provider == "litellm":
             logger.warning(f"LiteLLM provider failed, continuing without it")
             return provider, {}, False
+        else:
+            raise
+
+async def run_agent_streaming(provider: str, human_message: HumanMessage):
+    """Run an agent with streaming results as they complete."""
+    try:
+        logger.info(f"Running streaming agent with provider: {provider}")
+        config = get_agent_config(provider=provider)
+        agent_instance = AgentBuilder(provider=provider, **config).build()
+
+        async for result in agent_instance.ainvoke_streaming({"messages": [human_message]}):
+            output_key = result["output_key"]
+            if output_key.startswith("out_"):
+                output_key = output_key[4:]
+            
+            yield {
+                "provider": provider,
+                "output_key": output_key,
+                "value": result["value"],
+                "tag": result["tag"],
+                "model": result["model"]
+            }
+    except Exception as e:
+        logger.error(f"Error running streaming agent with provider {provider}: {str(e)}", exc_info=True)
+        if provider == "litellm":
+            logger.warning(f"LiteLLM provider failed, continuing without it")
         else:
             raise
 
@@ -263,8 +291,7 @@ async def run(request: SimpleRequest):
 async def run_stream(request: SimpleRequest):
     """
     Process a user message and stream results as they become available.
-    Supports running with OpenAI only, LiteLLM only, or both providers.
-    Runs agents in parallel and sends results as they complete.
+    Now streams individual model results as they complete.
     """
     async def generate():
         try:
@@ -273,74 +300,53 @@ async def run_stream(request: SimpleRequest):
             human_message = HumanMessage(content=user_message)
 
             providers_to_run = await get_providers_to_run(request.provider_mode)
-            all_results = {}
-            tool_warnings = []
-            completed_providers = set()
+            accumulated_output = {}
+            total_results_expected = 0
+            results_received = 0
 
-            if len(providers_to_run) > 1:
-                tasks = {provider: asyncio.create_task(run_agent_async(provider, human_message)) for provider in providers_to_run}
+            for provider in providers_to_run:
+                config = get_agent_config(provider=provider)
+                if isinstance(config.get("base_model"), list):
+                    total_results_expected += len(config["base_model"])
+                else:
+                    total_results_expected += 1
 
-                while tasks:
-                    done, pending = await asyncio.wait(
-                        tasks.values(),
-                        return_when=asyncio.FIRST_COMPLETED
-                    )
+            for provider in providers_to_run:
+                try:
+                    async for result in run_agent_streaming(provider, human_message):
+                        output_key = result["output_key"]
+                        value = result["value"]
+                        tag = result["tag"]
+                        model = result["model"]
 
-                    for task in done:
-                        provider = None
-                        for p, t in tasks.items():
-                            if t == task:
-                                provider = p
-                                break
-                        if provider:
-                            del tasks[provider]
-                            try:
-                                _, output, tool_warning = await task
-                                tool_warnings.append(tool_warning)
-                                all_results.update(output)
-                                completed_providers.add(provider)
+                        if output_key not in accumulated_output:
+                            accumulated_output[output_key] = []
+                        
+                        accumulated_output[output_key].append({
+                            "value": value,
+                            "tag": tag,
+                            "model": model
+                        })
 
-                                response_chunk = {
-                                    "provider": provider,
-                                    "output": output,
-                                    "tool_warning": tool_warning,
-                                    "completed": True,
-                                    "all_complete": len(completed_providers) == len(providers_to_run)
-                                }
-                                yield f"data: {json.dumps(response_chunk)}\n\n"
-                            except Exception as e:
-                                logger.error(f"Error in agent task for {provider}: {e}", exc_info=True)
-                                if provider == "litellm":
-                                    completed_providers.add(provider)
-                                    response_chunk = {
-                                        "provider": provider,
-                                        "error": str(e),
-                                        "completed": True,
-                                        "all_complete": len(completed_providers) == len(providers_to_run)
-                                    }
-                                    yield f"data: {json.dumps(response_chunk)}\n\n"
-                                else:
-                                    raise
-
-            else:
-                for provider in providers_to_run:
-                    _, output, tool_warning = await run_agent_async(provider, human_message)
-                    tool_warnings.append(tool_warning)
-                    all_results.update(output)
-                    completed_providers.add(provider)
-
-                    response_chunk = {
-                        "provider": provider,
-                        "output": output,
-                        "tool_warning": tool_warning,
-                        "completed": True,
-                        "all_complete": True
-                    }
-                    yield f"data: {json.dumps(response_chunk)}\n\n"
+                        results_received += 1
+                        
+                        response_chunk = {
+                            "output_key": output_key,
+                            "value": value,
+                            "tag": tag,
+                            "model": model,
+                            "provider": provider,
+                            "all_complete": results_received >= total_results_expected
+                        }
+                        yield f"data: {json.dumps(response_chunk)}\n\n"
+                
+                except Exception as e:
+                    logger.error(f"Error streaming from provider {provider}: {e}", exc_info=True)
+                    if provider != "litellm":
+                        raise
 
             final_response = {
-                "tool_warning": any(tool_warnings),
-                "output": all_results,
+                "output": accumulated_output,
                 "all_complete": True
             }
             yield f"data: {json.dumps(final_response)}\n\n"

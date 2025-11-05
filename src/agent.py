@@ -7,7 +7,7 @@ from src.tools.llm_tools import translate_text, fix_text, text_summarization, ge
 from src.tools.currency_converter import convert_currency
 from src.llm_providers import get_openai_llm, get_litellm_llm
 from textwrap import dedent
-from typing import Dict, Any, List, Literal
+from typing import Dict, Any, List, Literal, Union
 from dataclasses import dataclass, field
 import logging
 import time
@@ -170,6 +170,7 @@ class AgentState:
     is_native_language: bool = False
     query_language: str = ""
     tool_warning: bool = False
+    existent: str = ""
     out_tz_conversion: str = ""
     out_math_result: str = ""
     out_math_script: str = ""
@@ -199,6 +200,7 @@ class AgentState:
             "is_native_language": self.is_native_language,
             "query_language": self.query_language,
             "tool_warning": self.tool_warning,
+            "existent": self.existent,
             "out_tz_conversion": self.out_tz_conversion,
             "out_math_result": self.out_math_result,
             "out_math_script": self.out_math_script,
@@ -228,6 +230,14 @@ class Agent:
 
         return state.to_dict()
 
+    async def ainvoke_streaming(self, input_data: Dict[str, Any]):
+        state = AgentState()
+        if "messages" in input_data:
+            state.messages = input_data["messages"]
+
+        async for result in self.builder._run_agent_streaming(state):
+            yield result
+
 
 class AgentBuilder:
     def __init__(
@@ -236,8 +246,8 @@ class AgentBuilder:
         target_language: str = "English",
         native_currency: str = "EUR",
         current_location: str = "Asia/Nicosia",
-        base_model: str = "gpt-5",
-        fast_model: str = "gpt-5-mini",
+        base_model: Union[str, List[str]] = "gpt-5",
+        fast_model: Union[str, List[str]] = "gpt-5-mini",
         temperature: float = 1,
         provider: Literal["openai", "litellm"] = "openai",
         thinking_budget: int = None,
@@ -246,23 +256,42 @@ class AgentBuilder:
         self.target_language = target_language
         self.native_currency = native_currency
         self.current_location = current_location
-        self.base_model = base_model
-        self.fast_model = fast_model
+        self.base_model = base_model if isinstance(base_model, list) else [base_model]
+        self.fast_model = fast_model if isinstance(fast_model, list) else [fast_model]
         self.temperature = temperature
         self.provider = provider
         self.thinking_budget = thinking_budget
 
-    def _get_llm(self, use_fast: bool = False) -> ChatOpenAI:
-        model_name = self.fast_model if use_fast else self.base_model
+    def _get_llm(self, use_fast: bool = False) -> Union[ChatOpenAI, List[ChatOpenAI]]:
+        model_names = self.fast_model if use_fast else self.base_model
+
+        if len(model_names) == 1:
+            if self.provider == "litellm":
+                return get_litellm_llm(model_names[0], self.temperature, self.thinking_budget)
+            else:
+                return get_openai_llm(model_names[0], self.temperature, self.thinking_budget)
+
+        llms = []
+        for model_name in model_names:
+            if self.provider == "litellm":
+                llms.append(get_litellm_llm(model_name, self.temperature, self.thinking_budget))
+            else:
+                llms.append(get_openai_llm(model_name, self.temperature, self.thinking_budget))
+        return llms
+
+    def _get_single_llm(self, use_fast: bool = False) -> ChatOpenAI:
+        model_names = self.fast_model if use_fast else self.base_model
+        model_name = model_names[0]
+
         if self.provider == "litellm":
             return get_litellm_llm(model_name, self.temperature, self.thinking_budget)
         else:
             return get_openai_llm(model_name, self.temperature, self.thinking_budget)
 
     def _get_model_info(self, use_fast: bool = False) -> str:
-        model_name = self.fast_model if use_fast else self.base_model
+        model_names = self.fast_model if use_fast else self.base_model
         reasoning_effort = "low" if self.thinking_budget is not None else "None"
-        return f"provider={self.provider}, model={model_name}, reasoning_effort={reasoning_effort}"
+        return f"provider={self.provider}, models={model_names}, reasoning_effort={reasoning_effort}"
 
     async def invoke_llm_with_tools(
         self,
@@ -305,7 +334,7 @@ class AgentBuilder:
 
     @timed_node("task_router_node")
     async def _task_router_node(self, state: AgentState) -> Dict[str, Any]:
-        router_llm = self._get_llm(use_fast=True)
+        router_llm = self._get_single_llm(use_fast=True)
         logger.info(f"[MODEL_INFO] task_router_node: {self._get_model_info(use_fast=True)}")
         task_message = SystemMessage(router_prompt.format(native_language=self.native_language))
         user_message = state.messages[0]
@@ -324,6 +353,7 @@ class AgentBuilder:
         return {"tasks": task_names,
                 "is_native_language": is_native_language,
                 "query_language": query_language,
+                "existent": user_message.content,
                 "out_text": user_message.content}
 
     def _get_routes(self, state: AgentState) -> list[str]:
@@ -339,9 +369,9 @@ class AgentBuilder:
         return routes
 
     @timed_node("text_translation_node")
-    async def _text_translation_node(self, state: AgentState) -> Dict[str, Any]:
-        llm = self._get_llm(use_fast=False)
-        logger.info(f"[MODEL_INFO] text_translation_node: {self._get_model_info(use_fast=False)}")
+    async def _text_translation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+        model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
+        logger.info(f"[MODEL_INFO] text_translation_node: {model_info}")
         translated_text = await translate_text(
             text=state.messages[0].content,
             native_language=self.native_language,
@@ -352,9 +382,9 @@ class AgentBuilder:
         return {"out_translation": translated_text}
 
     @timed_node("text_fix_node")
-    async def _text_fix_node(self, state: AgentState) -> Dict[str, Any]:
-        llm = self._get_llm(use_fast=False)
-        logger.info(f"[MODEL_INFO] text_fix_node: {self._get_model_info(use_fast=False)}")
+    async def _text_fix_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+        model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
+        logger.info(f"[MODEL_INFO] text_fix_node: {model_info}")
         fixed_text = await fix_text(
             text=state.messages[0].content,
             llm=llm
@@ -362,13 +392,15 @@ class AgentBuilder:
         return {"out_fixed": fixed_text}
 
     @timed_node("text_summarization_node")
-    async def _text_summarization_node(self, state: AgentState) -> Dict[str, Any]:
-        llm = self._get_llm(use_fast=False)
-        logger.info(f"[MODEL_INFO] text_summarization_node: {self._get_model_info(use_fast=False)}")
-        return {"out_tldr": await text_summarization(
+    async def _text_summarization_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+        model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
+        logger.info(f"[MODEL_INFO] text_summarization_node: {model_info}")
+        tldr_text = await text_summarization(
             text=state.messages[0].content,
             native_language=self.native_language,
-            llm=llm)}
+            llm=llm
+        )
+        return {"out_tldr": tldr_text}
 
     @timed_node("tz_conversion_node")
     async def _tz_conversion_node(self, state: AgentState) -> Dict[str, Any]:
@@ -382,14 +414,14 @@ class AgentBuilder:
 
     @timed_node("tz_conversion_outro_node")
     async def _tz_conversion_outro_node(self, state: AgentState) -> Dict[str, Any]:
-        tz_conversion_llm = self._get_llm(use_fast=True)
+        tz_conversion_llm = self._get_single_llm(use_fast=True)
         logger.info(f"[MODEL_INFO] tz_conversion_outro_node: {self._get_model_info(use_fast=True)}")
         response = await tz_conversion_llm.ainvoke(state.messages)
         return {"out_tz_conversion": response.content}
 
     @timed_node("math_formula_calculation_node")
     async def _math_formula_calculation_node(self, state: AgentState) -> Dict[str, Any]:
-        math_formula_calculation_llm = self._get_llm(use_fast=True)
+        math_formula_calculation_llm = self._get_single_llm(use_fast=True)
         logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=True)}")
         response = await math_formula_calculation_llm.ainvoke([SystemMessage(math_formula_calculation_prompt), state.messages[0]])
         calculation_result = calculate_formula(response.content)
@@ -440,30 +472,148 @@ class AgentBuilder:
         bash_command = await generate_bash_command(state.messages[0].content)
         return {"out_bash_command": bash_command}
 
+    def _get_tag_for_model(self, model_name: str) -> str:
+        if "gemini" in model_name.lower():
+            return "[g]"
+        elif "gpt" in model_name.lower():
+            return "[o]"
+        return ""
+
+    async def _run_agent_streaming(self, state: AgentState):
+        result = await self._task_router_node(state)
+        state.update(result)
+        
+        # Yield existent text first if available
+        if state.existent:
+            yield {
+                "output_key": "existent",
+                "value": state.existent,
+                "tag": "",
+                "model": "router"
+            }
+
+        routes = self._get_routes(state)
+        llms = self._get_llm(use_fast=False)
+        model_names = self.base_model
+
+        if not isinstance(llms, list):
+            llms = [llms]
+            model_names = [model_names[0]] if isinstance(model_names, list) else [model_names]
+
+        tasks_list = []
+        metadata_list = []
+
+        for route in routes:
+            for i, llm in enumerate(llms):
+                model_name = model_names[i] if i < len(model_names) else "unknown"
+                task = None
+                
+                if route == "text_translation_node":
+                    task = asyncio.create_task(self._text_translation_node(state, llm, model_name))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_translation"}
+                elif route == "text_fix_node":
+                    task = asyncio.create_task(self._text_fix_node(state, llm, model_name))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_fixed"}
+                elif route == "text_summarization_node":
+                    task = asyncio.create_task(self._text_summarization_node(state, llm, model_name))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_tldr"}
+                elif route == "math_formula_calculation_node":
+                    task = asyncio.create_task(self._math_formula_calculation_node(state))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_math_result"}
+                
+                if task:
+                    tasks_list.append(task)
+                    metadata_list.append(metadata)
+
+        if tasks_list:
+            pending = set(tasks_list)
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                
+                for completed_task in done:
+                    try:
+                        result = await completed_task
+                        task_index = tasks_list.index(completed_task)
+                        metadata = metadata_list[task_index]
+                        
+                        output_key = metadata["output_key"]
+                        model_name = metadata["model"]
+                        tag = self._get_tag_for_model(model_name)
+                        
+                        for key, value in result.items():
+                            if key.startswith("out_"):
+                                yield {
+                                    "output_key": output_key,
+                                    "value": value,
+                                    "tag": tag,
+                                    "model": model_name
+                                }
+                    except Exception as e:
+                        logger.error(f"Task failed: {e}", exc_info=True)
+                        continue
+
     async def _run_agent(self, state: AgentState):
         result = await self._task_router_node(state)
         state.update(result)
 
         routes = self._get_routes(state)
+        llms = self._get_llm(use_fast=False)
+        model_names = self.base_model
+
+        if not isinstance(llms, list):
+            llms = [llms]
+            model_names = [model_names[0]] if isinstance(model_names, list) else [model_names]
 
         tasks = []
+        task_metadata = []
+
         for route in routes:
-            if route == "text_translation_node":
-                tasks.append(self._text_translation_node(state))
-            elif route == "text_fix_node":
-                tasks.append(self._text_fix_node(state))
-            elif route == "text_summarization_node":
-                tasks.append(self._text_summarization_node(state))
-            elif route == "math_formula_calculation_node":
-                tasks.append(self._math_formula_calculation_node(state))
+            for i, llm in enumerate(llms):
+                model_name = model_names[i] if i < len(model_names) else "unknown"
+                
+                if route == "text_translation_node":
+                    tasks.append(self._text_translation_node(state, llm, model_name))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_translation"})
+                elif route == "text_fix_node":
+                    tasks.append(self._text_fix_node(state, llm, model_name))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_fixed"})
+                elif route == "text_summarization_node":
+                    tasks.append(self._text_summarization_node(state, llm, model_name))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_tldr"})
+                elif route == "math_formula_calculation_node":
+                    tasks.append(self._math_formula_calculation_node(state))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_math_result"})
 
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
+            
+            aggregated = {}
+            for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     logger.error(f"Task failed: {result}")
-                else:
-                    state.update(result)
+                    continue
+                
+                metadata = task_metadata[i]
+                output_key = metadata["output_key"]
+                model_name = metadata["model"]
+                tag = self._get_tag_for_model(model_name)
+                
+                if output_key not in aggregated:
+                    aggregated[output_key] = []
+                
+                for key, value in result.items():
+                    if key.startswith("out_"):
+                        aggregated[output_key].append({
+                            "value": value,
+                            "tag": tag,
+                            "model": model_name
+                        })
+            
+            for output_key, items in aggregated.items():
+                if len(items) > 1:
+                    state.update({output_key: items})
+                elif len(items) == 1:
+                    state.update({output_key: items[0]["value"]})
 
     def build(self) -> Agent:
         return Agent(self)

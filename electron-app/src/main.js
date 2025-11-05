@@ -225,17 +225,43 @@ function createPopupWindow(responseText, isLoading = false) {
     const otherEntries = outputEntries.filter(([key]) => key !== 'existent');
 
     // Add existent tab first if it exists
+    let startTabIndex = 0;
     if (existentEntry) {
       const [key, value] = existentEntry;
-      tabs.push(`<div class="tab active" data-tab="0">${key}</div>`);
-      tabContents.push(`<div class="tab-content active" id="tab-0">${value}</div>`);
+      if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
+        value.forEach((item, itemIndex) => {
+          const tag = item.tag || '';
+          const tabName = `${key} ${tag}`.trim();
+          const isActive = startTabIndex === 0;
+          tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}">${tabName}</div>`);
+          tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${item.value}</div>`);
+          startTabIndex++;
+        });
+      } else {
+        tabs.push(`<div class="tab active" data-tab="0">${key}</div>`);
+        tabContents.push(`<div class="tab-content active" id="tab-0">${value}</div>`);
+        startTabIndex = 1;
+      }
     }
 
     // Add remaining tabs
-    otherEntries.forEach(([key, value], index) => {
-      const tabIndex = existentEntry ? index + 1 : index;
-      tabs.push(`<div class="tab ${!existentEntry && index === 0 ? 'active' : ''}" data-tab="${tabIndex}">${key}</div>`);
-      tabContents.push(`<div class="tab-content ${!existentEntry && index === 0 ? 'active' : ''}" id="tab-${tabIndex}">${value}</div>`);
+    let globalTabIndex = startTabIndex;
+    otherEntries.forEach(([key, value]) => {
+      if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
+        value.forEach((item, itemIndex) => {
+          const tag = item.tag || '';
+          const tabName = `${key} ${tag}`.trim();
+          const isActive = globalTabIndex === 0;
+          tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}">${tabName}</div>`);
+          tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${item.value}</div>`);
+          globalTabIndex++;
+        });
+      } else {
+        const isActive = globalTabIndex === 0;
+        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}">${key}</div>`);
+        tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${value}</div>`);
+        globalTabIndex++;
+      }
     });
 
     // Ensure at least one tab is active if no tabs were added
@@ -496,6 +522,98 @@ function createPopupWindow(responseText, isLoading = false) {
         document.getElementById('closeBtn').addEventListener('click', () => {
           ipcRenderer.send('close-popup');
         });
+        
+        // Handle dynamic tab additions
+        let tabCounter = document.querySelectorAll('.tab').length;
+        
+        ipcRenderer.on('add-tab', (event, output) => {
+          const tabsContainer = document.querySelector('.tabs');
+          const tabContentsContainer = document.querySelector('.content-wrapper');
+          
+          // Remove loading if present
+          const loadingDiv = document.querySelector('.loading-container');
+          if (loadingDiv) {
+            loadingDiv.remove();
+          }
+          
+          for (const [key, value] of Object.entries(output)) {
+            if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
+              value.forEach((item) => {
+                const tag = item.tag || '';
+                const tabName = key + ' ' + tag;
+                
+                const newTab = document.createElement('div');
+                newTab.className = 'tab';
+                newTab.setAttribute('data-tab', tabCounter);
+                newTab.textContent = tabName.trim();
+                
+                const newContent = document.createElement('div');
+                newContent.className = 'tab-content';
+                newContent.id = 'tab-' + tabCounter;
+                newContent.textContent = item.value;
+                
+                tabsContainer.appendChild(newTab);
+                tabContentsContainer.appendChild(newContent);
+                
+                // Add click handler
+                newTab.addEventListener('click', function() {
+                  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                  newTab.classList.add('active');
+                  newContent.classList.add('active');
+                });
+                
+                // Auto-show the new tab
+                if (tabCounter === 0 || key === 'existent') {
+                  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                  newTab.classList.add('active');
+                  newContent.classList.add('active');
+                }
+                
+                tabCounter++;
+              });
+            } else if (value) {
+              const newTab = document.createElement('div');
+              newTab.className = 'tab';
+              newTab.setAttribute('data-tab', tabCounter);
+              newTab.textContent = key;
+              
+              const newContent = document.createElement('div');
+              newContent.className = 'tab-content';
+              newContent.id = 'tab-' + tabCounter;
+              newContent.textContent = value;
+              
+              tabsContainer.appendChild(newTab);
+              tabContentsContainer.appendChild(newContent);
+              
+              // Add click handler
+              newTab.addEventListener('click', function() {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                newTab.classList.add('active');
+                newContent.classList.add('active');
+              });
+              
+              // Auto-show the new tab if it's existent
+              if (key === 'existent') {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                newTab.classList.add('active');
+                newContent.classList.add('active');
+              }
+              
+              tabCounter++;
+            }
+          }
+        });
+        
+        ipcRenderer.on('loading-complete', () => {
+          const loadingDiv = document.querySelector('.loading-container');
+          if (loadingDiv) {
+            loadingDiv.remove();
+          }
+        });
       `);
     });
   }
@@ -504,6 +622,8 @@ function createPopupWindow(responseText, isLoading = false) {
   const htmlContent = generateHtmlContent(responseText, isLoading);
   popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
   popupWindow.show();
+  
+  return popupWindow;
 }
 
 // Start the Python API server
@@ -622,15 +742,42 @@ function registerShortcut() {
                       return;
                     }
 
-                    if (data.output) {
-                      Object.assign(accumulatedOutput, data.output);
+                    if (data.output_key) {
+                      if (!accumulatedOutput[data.output_key]) {
+                        accumulatedOutput[data.output_key] = [];
+                      }
+                      
+                      const newItem = {
+                        value: data.value,
+                        tag: data.tag,
+                        model: data.model
+                      };
+                      
+                      accumulatedOutput[data.output_key].push(newItem);
+
+                      // Update popup with accumulated output
                       updatePopup(accumulatedOutput, !data.all_complete);
                       
                       if (data.all_complete) {
                         allComplete = true;
                         if (mainWindow && !mainWindow.isDestroyed()) {
                           mainWindow.webContents.send('response-ready', {
-                            tool_warning: data.tool_warning || false,
+                            tool_warning: false,
+                            output: accumulatedOutput
+                          });
+                        }
+                        resolve();
+                      }
+                    } else if (data.output) {
+                      Object.assign(accumulatedOutput, data.output);
+                      
+                      updatePopup(accumulatedOutput, !data.all_complete);
+                      
+                      if (data.all_complete) {
+                        allComplete = true;
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                          mainWindow.webContents.send('response-ready', {
+                            tool_warning: false,
                             output: accumulatedOutput
                           });
                         }
@@ -650,8 +797,21 @@ function registerShortcut() {
                 if (line.startsWith('data: ')) {
                   try {
                     const data = JSON.parse(line.slice(6));
-                    if (data.output) {
+                    if (data.output_key) {
+                      if (!accumulatedOutput[data.output_key]) {
+                        accumulatedOutput[data.output_key] = [];
+                      }
+                      const newItem = {
+                        value: data.value,
+                        tag: data.tag,
+                        model: data.model
+                      };
+                      accumulatedOutput[data.output_key].push(newItem);
+                      
+                      updatePopup(accumulatedOutput, false);
+                    } else if (data.output) {
                       Object.assign(accumulatedOutput, data.output);
+                      
                       updatePopup(accumulatedOutput, false);
                     }
                   } catch (e) {

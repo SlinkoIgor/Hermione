@@ -8,7 +8,7 @@ MODEL_CONFIGS = {
         "thinking_budget": None,
     },
     "litellm": {
-        "base_model": "gemini-2.5-flash-lite",
+        "base_model": "gemini-2.5-flash",
         "fast_model": "gemini-2.5-flash-lite",
         "thinking_budget": None,
     }

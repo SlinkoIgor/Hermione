@@ -26,14 +26,27 @@ def agent(provider):
 async def test_math_formula_calculation(agent):
     messages = await agent.ainvoke({"messages": [HumanMessage("log10(1000 * 66)")]})
     result = messages.get("out_math_result", "")
-    assert "4.819543935541868" in result or "4.82" in result
+    
+    if isinstance(result, list):
+        result_str = " ".join([item.get("value", "") if isinstance(item, dict) else str(item) for item in result])
+    else:
+        result_str = result
+    
+    assert "4.819543935541868" in result_str or "4.82" in result_str
 
 @pytest.mark.asyncio
 async def test_word_explanation(agent):
     messages = await agent.ainvoke({"messages": [HumanMessage("Photosynthesis")]})
     assert "out_translation" in messages
     assert "out_fixed" in messages
-    fixed_text = re.sub(r'<[^>]+>', '', messages["out_fixed"])
+    
+    fixed = messages["out_fixed"]
+    if isinstance(fixed, list):
+        fixed_text = " ".join([item.get("value", "") if isinstance(item, dict) else str(item) for item in fixed])
+    else:
+        fixed_text = fixed
+    
+    fixed_text = re.sub(r'<[^>]+>', '', fixed_text)
     assert "Photosynthesis" in fixed_text, fixed_text
 
 # def test_time_zone_conversion_russian(agent):
@@ -53,7 +66,14 @@ async def test_text_translation(agent):
     })
     assert "out_translation" in messages
     assert "out_fixed" in messages
-    fixed_text = re.sub(r'<[^>]+>', '', messages["out_fixed"])
+    
+    fixed = messages["out_fixed"]
+    if isinstance(fixed, list):
+        fixed_text = " ".join([item.get("value", "") if isinstance(item, dict) else str(item) for item in fixed])
+    else:
+        fixed_text = fixed
+    
+    fixed_text = re.sub(r'<[^>]+>', '', fixed_text)
     assert "LangChain" in fixed_text
     assert "bind_tools" in fixed_text.lower()
 
@@ -78,22 +98,34 @@ async def test_sum_of_logarithms(agent):
     messages = await agent.ainvoke({"messages": [HumanMessage("SUM(log(n)) где N = 1..10 c шагом 1")]})
     result = messages.get("out_math_result", "")
     expected_result = sum(np.log(n) for n in range(1, 11))
+    
+    if isinstance(result, list):
+        result_str = " ".join([item.get("value", "") if isinstance(item, dict) else str(item) for item in result])
+    else:
+        result_str = result
+    
     try:
-        result_value = float(result.strip())
+        result_value = float(result_str.strip())
         assert abs(result_value - expected_result) < 1e-10
     except ValueError:
-        assert str(expected_result)[:5] in result
+        assert str(expected_result)[:5] in result_str
 
 @pytest.mark.asyncio
 async def test_percentage_calculation(agent):
     messages = await agent.ainvoke({"messages": [HumanMessage("Найдите часть от целого:\nА) 23% от 300;")]})
     result = messages.get("out_math_result", "")
     expected_result = (23 / 100) * 300
+    
+    if isinstance(result, list):
+        result_str = " ".join([item.get("value", "") if isinstance(item, dict) else str(item) for item in result])
+    else:
+        result_str = result
+    
     try:
-        result_value = float(result.strip())
+        result_value = float(result_str.strip())
         assert abs(result_value - expected_result) < 1e-10
     except ValueError:
-        assert str(expected_result)[:5] in result
+        assert str(expected_result)[:5] in result_str
 
 # def test_generate_bash_command(agent):
 #     messages = agent.invoke({"messages": [HumanMessage("list all files in current directory")]})
