@@ -151,15 +151,24 @@ router_prompt = dedent("""
 
     In cases when you doubt whether to include a task in the list – it's better to include it.
 
-    Also figure out the query language and if the user input is in the native language ({native_language})
+    Language detection:
+    - Identify the primary language of the user input (e.g., Russian, English, Spanish, etc.)
+    - The native language is: {native_language}
+    - Determine if the user input is written in {native_language} by examining the actual text content, script, and vocabulary
+    - If the input contains text primarily in {native_language}, set is_native_language to "True"
+    - If the input is in any other language, set is_native_language to "False"
+    - Be precise: if the user writes in {native_language}, you MUST return "True" for is_native_language
 
-    Return ONLY the task names is_native_language and query_language as a string with comma delimiters, nothing else.
+    Return ONLY the task names, query_language, and is_native_language as a string with comma delimiters, nothing else.
 
     Return format: "task1,task2,...,taskN,query_language,is_native_language"
-    Example: "text_task,Spanish,False"
+    Examples:
+    - Input in {native_language}: "text_task,{native_language},True"
+    - Input in English: "text_task,English,False"
+    - Input in Spanish: "text_task,Spanish,False"
 
-    The one to the last part (query_language) should be the query language.
-    The last part (is_native_language) should be "True" if the user input is in {native_language} or "False" otherwise.
+    The second-to-last part (query_language) should be the detected language name.
+    The last part (is_native_language) must be "True" if the input is in {native_language}, "False" otherwise.
     """)
 
 
