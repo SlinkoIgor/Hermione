@@ -448,26 +448,28 @@ function createPopupWindow(responseText, isLoading = false) {
         <script>
           document.addEventListener('DOMContentLoaded', function() {
             // Tab switching functionality
-            const tabs = document.querySelectorAll('.tab');
-            const tabContents = document.querySelectorAll('.tab-content');
+            // Use event delegation for better handling of dynamic elements
+            const tabsContainer = document.getElementById('tabsContainer');
             
-            tabs.forEach(function(tab) {
-              tab.addEventListener('click', function() {
-                const tabIndex = tab.getAttribute('data-tab');
+            if (tabsContainer) {
+              tabsContainer.addEventListener('click', function(e) {
+                const tab = e.target.closest('.tab');
+                if (!tab) return;
                 
                 // Update active tab
-                tabs.forEach(function(t) {
-                  t.classList.remove('active');
-                });
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
                 
                 // Update active content
-                tabContents.forEach(function(content) {
-                  content.classList.remove('active');
-                });
-                document.getElementById('tab-' + tabIndex).classList.add('active');
+                const tabIndex = tab.getAttribute('data-tab');
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                const content = document.getElementById('tab-' + tabIndex);
+                if (content) {
+                  content.classList.add('active');
+                }
               });
-            });
+            }
             
             // Close button functionality
             document.getElementById('closeBtn').addEventListener('click', function() {
@@ -588,7 +590,13 @@ function createPopupWindow(responseText, isLoading = false) {
               // Helper to process adding a tab
               const processTab = (itemValue, itemTag, uniqueId) => {
                 // Check if tab already exists
-                if (document.querySelector(\`.tab[data-unique-id="\${uniqueId}"]\`)) {
+                const existingTab = document.querySelector(\`.tab[data-unique-id="\${uniqueId}"]\`);
+                if (existingTab) {
+                  const tabIndex = existingTab.getAttribute('data-tab');
+                  const contentDiv = document.getElementById('tab-' + tabIndex);
+                  if (contentDiv) {
+                    contentDiv.textContent = itemValue;
+                  }
                   return;
                 }
                 
@@ -608,14 +616,6 @@ function createPopupWindow(responseText, isLoading = false) {
                 
                 tabsContainer.appendChild(newTab);
                 tabContentsContainer.appendChild(newContent);
-                
-                // Add click handler
-                newTab.addEventListener('click', function() {
-                  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                  newTab.classList.add('active');
-                  newContent.classList.add('active');
-                });
                 
                 // Auto-show the new tab if it's the first one or "existent"
                 const isFirst = tabCount === 0;
