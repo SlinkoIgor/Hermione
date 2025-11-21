@@ -529,6 +529,12 @@ function createPopupWindow(responseText, isLoading = false) {
     if (hasContent && !isPopupShowingContent) {
       shouldCreateOrReload = true;
     }
+    
+    // If we are starting a new request (loading, no content) and the window is currently showing content,
+    // we MUST reload to show the loading screen (and clear old content).
+    if (!hasContent && isLoading && isPopupShowingContent) {
+      shouldCreateOrReload = true;
+    }
   }
 
   if (shouldCreateOrReload) {
@@ -595,7 +601,7 @@ function createPopupWindow(responseText, isLoading = false) {
                   const tabIndex = existingTab.getAttribute('data-tab');
                   const contentDiv = document.getElementById('tab-' + tabIndex);
                   if (contentDiv) {
-                    contentDiv.textContent = itemValue;
+                    contentDiv.innerHTML = itemValue;
                   }
                   return;
                 }
@@ -612,7 +618,7 @@ function createPopupWindow(responseText, isLoading = false) {
                 const newContent = document.createElement('div');
                 newContent.className = 'tab-content';
                 newContent.id = 'tab-' + tabCount;
-                newContent.textContent = itemValue;
+                newContent.innerHTML = itemValue;
                 
                 tabsContainer.appendChild(newTab);
                 tabContentsContainer.appendChild(newContent);

@@ -49,6 +49,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "../.env",
+        "to": "."
       }
     ],
     "publish": null
