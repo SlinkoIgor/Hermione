@@ -10,6 +10,7 @@ let mainWindow = null;
 let pythonProcess = null;
 let isQuitting = false;
 let popupWindow = null;
+let isPopupShowingContent = false;
 let lastPopupBounds = {
   width: 400,
   height: 200,
@@ -96,9 +97,15 @@ function createPopupWindow(responseText, isLoading = false) {
   const cursorPosition = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPosition);
 
+  // Check if we have content to show
+  const hasContent = responseText && responseText.output && Object.keys(responseText.output).length > 0;
+
   // Function to generate HTML content
   const generateHtmlContent = (response, loading) => {
-    if (loading) {
+    // Only show loading screen if loading is true AND we have no content
+    const shouldShowLoading = loading && (!response || !response.output || Object.keys(response.output).length === 0);
+    
+    if (shouldShowLoading) {
       return `
         <!DOCTYPE html>
         <html>
@@ -234,13 +241,15 @@ function createPopupWindow(responseText, isLoading = false) {
           const tag = item.tag || '';
           const tabName = `${key} ${tag}`.trim();
           const isActive = startTabIndex === lastActiveTab;
-          tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}">${tabName}</div>`);
+          const uniqueId = `${key}-array-${itemIndex}`;
+          tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
           tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${item.value}</div>`);
           startTabIndex++;
         });
       } else {
         const isActive = startTabIndex === lastActiveTab;
-        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}">${key}</div>`);
+        const uniqueId = `${key}-string`;
+        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${key}</div>`);
         tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${value}</div>`);
         startTabIndex = 1;
       }
@@ -254,13 +263,15 @@ function createPopupWindow(responseText, isLoading = false) {
           const tag = item.tag || '';
           const tabName = `${key} ${tag}`.trim();
           const isActive = globalTabIndex === lastActiveTab;
-          tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}">${tabName}</div>`);
+          const uniqueId = `${key}-array-${itemIndex}`;
+          tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
           tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${item.value}</div>`);
           globalTabIndex++;
         });
       } else {
         const isActive = globalTabIndex === lastActiveTab;
-        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}">${key}</div>`);
+        const uniqueId = `${key}-string`;
+        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}" data-unique-id="${uniqueId}">${key}</div>`);
         tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${value}</div>`);
         globalTabIndex++;
       }
@@ -417,6 +428,7 @@ function createPopupWindow(responseText, isLoading = false) {
           }
           ::-webkit-scrollbar-thumb:hover {
             background: rgba(0, 0, 0, 0.15);
+            border-radius: 4px;
           }
         </style>
       </head>
@@ -468,7 +480,10 @@ function createPopupWindow(responseText, isLoading = false) {
                 window.close();
               } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                 const activeTab = document.querySelector('.tab.active');
+                if (!activeTab) return;
+                
                 const activeTabIndex = parseInt(activeTab.getAttribute('data-tab'));
+                const tabs = document.querySelectorAll('.tab');
                 const tabsCount = tabs.length;
                 
                 let newTabIndex;
@@ -478,8 +493,9 @@ function createPopupWindow(responseText, isLoading = false) {
                   newTabIndex = (activeTabIndex + 1) % tabsCount;
                 }
                 
-                // Simulate click on the new tab
-                document.querySelector('.tab[data-tab="' + newTabIndex + '"]').click();
+                // Find the tab with this data-tab attribute and click it
+                const targetTab = document.querySelector('.tab[data-tab="' + newTabIndex + '"]');
+                if (targetTab) targetTab.click();
               }
             });
 
@@ -499,67 +515,96 @@ function createPopupWindow(responseText, isLoading = false) {
     `;
   }
 
-  // Create or update the popup window
+  // Determine if we need to create a new window or reload the existing one
+  let shouldCreateOrReload = false;
+  
   if (!popupWindow || popupWindow.isDestroyed()) {
-    popupWindow = new BrowserWindow({
-      width: lastPopupBounds.width,
-      height: lastPopupBounds.height,
-      x: lastPopupBounds.x || cursorPosition.x,
-      y: lastPopupBounds.y || cursorPosition.y,
-      frame: false,
-      transparent: true,
-      resizable: true,
-      webPreferences: {
-        nodeIntegration: true,
-        contextIsolation: false
-      }
-    });
+    shouldCreateOrReload = true;
+    isPopupShowingContent = false;
+  } else {
+    // If we have content but the window is currently showing the loading screen (isPopupShowingContent is false),
+    // we MUST reload to switch to the content layout.
+    if (hasContent && !isPopupShowingContent) {
+      shouldCreateOrReload = true;
+    }
+  }
 
-    // Store window bounds when resized
-    popupWindow.on('resize', () => {
-      const bounds = popupWindow.getBounds();
-      lastPopupBounds.width = bounds.width;
-      lastPopupBounds.height = bounds.height;
-      lastPopupBounds.x = bounds.x;
-      lastPopupBounds.y = bounds.y;
-    });
+  if (shouldCreateOrReload) {
+    // Create window if needed
+    if (!popupWindow || popupWindow.isDestroyed()) {
+      popupWindow = new BrowserWindow({
+        width: lastPopupBounds.width,
+        height: lastPopupBounds.height,
+        x: lastPopupBounds.x || cursorPosition.x,
+        y: lastPopupBounds.y || cursorPosition.y,
+        frame: false,
+        transparent: true,
+        resizable: true,
+        webPreferences: {
+          nodeIntegration: true,
+          contextIsolation: false
+        }
+      });
 
-    // Close popup when clicking the close button
-    popupWindow.webContents.on('did-finish-load', () => {
-      popupWindow.webContents.executeJavaScript(`
-        const { ipcRenderer } = require('electron');
-        document.getElementById('closeBtn').addEventListener('click', () => {
-          ipcRenderer.send('close-popup');
-        });
-        
-        // Handle dynamic tab additions
-        let tabCounter = document.querySelectorAll('.tab').length;
-        
-        ipcRenderer.on('add-tab', (event, output) => {
-          const tabsContainer = document.querySelector('.tabs');
-          const tabContentsContainer = document.querySelector('.content-wrapper');
-          
-          // Remove loading if present
-          const loadingDiv = document.querySelector('.loading-container');
-          if (loadingDiv) {
-            loadingDiv.remove();
+      // Store window bounds when resized
+      popupWindow.on('resize', () => {
+        const bounds = popupWindow.getBounds();
+        lastPopupBounds.width = bounds.width;
+        lastPopupBounds.height = bounds.height;
+        lastPopupBounds.x = bounds.x;
+        lastPopupBounds.y = bounds.y;
+      });
+
+      popupWindow.on('closed', () => {
+        popupWindow = null;
+        isPopupShowingContent = false;
+      });
+
+      // Setup IPC listeners
+      popupWindow.webContents.on('did-finish-load', () => {
+        popupWindow.webContents.executeJavaScript(`
+          const { ipcRenderer } = require('electron');
+          const closeBtn = document.getElementById('closeBtn');
+          if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+              ipcRenderer.send('close-popup');
+            });
           }
           
-          for (const [key, value] of Object.entries(output)) {
-            if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
-              value.forEach((item) => {
-                const tag = item.tag || '';
-                const tabName = key + ' ' + tag;
+          // Handle dynamic tab additions
+          ipcRenderer.on('add-tab', (event, output) => {
+            const tabsContainer = document.getElementById('tabsContainer');
+            const tabContentsContainer = document.getElementById('content');
+            
+            if (!tabsContainer || !tabContentsContainer) return;
+            
+            // Remove loading if present
+            const loadingDiv = document.querySelector('.loading-dots');
+            if (loadingDiv) {
+              loadingDiv.closest('.content-wrapper').innerHTML = '';
+            }
+            
+            for (const [key, value] of Object.entries(output)) {
+              // Helper to process adding a tab
+              const processTab = (itemValue, itemTag, uniqueId) => {
+                // Check if tab already exists
+                if (document.querySelector(\`.tab[data-unique-id="\${uniqueId}"]\`)) {
+                  return;
+                }
+                
+                const tabCount = document.querySelectorAll('.tab').length;
+                const tabName = (key + ' ' + (itemTag || '')).trim();
                 
                 const newTab = document.createElement('div');
                 newTab.className = 'tab';
-                newTab.setAttribute('data-tab', tabCounter);
-                newTab.textContent = tabName.trim();
+                newTab.setAttribute('data-tab', tabCount);
+                newTab.setAttribute('data-unique-id', uniqueId);
+                newTab.textContent = tabName;
                 
                 const newContent = document.createElement('div');
                 newContent.className = 'tab-content';
-                newContent.id = 'tab-' + tabCounter;
-                newContent.textContent = item.value;
+                newContent.id = 'tab-' + tabCount;
+                newContent.textContent = itemValue;
                 
                 tabsContainer.appendChild(newTab);
                 tabContentsContainer.appendChild(newContent);
@@ -572,65 +617,67 @@ function createPopupWindow(responseText, isLoading = false) {
                   newContent.classList.add('active');
                 });
                 
-                // Auto-show the new tab
-                if (tabCounter === 0 || key === 'existent') {
-                  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                  newTab.classList.add('active');
-                  newContent.classList.add('active');
-                }
+                // Auto-show the new tab if it's the first one or "existent"
+                const isFirst = tabCount === 0;
+                const isExistent = key === 'existent';
                 
-                tabCounter++;
-              });
-            } else if (value) {
-              const newTab = document.createElement('div');
-              newTab.className = 'tab';
-              newTab.setAttribute('data-tab', tabCounter);
-              newTab.textContent = key;
-              
-              const newContent = document.createElement('div');
-              newContent.className = 'tab-content';
-              newContent.id = 'tab-' + tabCounter;
-              newContent.textContent = value;
-              
-              tabsContainer.appendChild(newTab);
-              tabContentsContainer.appendChild(newContent);
-              
-              // Add click handler
-              newTab.addEventListener('click', function() {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                newTab.classList.add('active');
-                newContent.classList.add('active');
-              });
-              
-              // Auto-show the new tab if it's existent
-              if (key === 'existent') {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                newTab.classList.add('active');
-                newContent.classList.add('active');
-              }
-              
-              tabCounter++;
-            }
-          }
-        });
-        
-        ipcRenderer.on('loading-complete', () => {
-          const loadingDiv = document.querySelector('.loading-container');
-          if (loadingDiv) {
-            loadingDiv.remove();
-          }
-        });
-      `);
-    });
-  }
+                if (isFirst || isExistent) {
+                   // Use a small timeout to ensure UI update if rapidly adding
+                   setTimeout(() => {
+                      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                      newTab.classList.add('active');
+                      newContent.classList.add('active');
+                   }, 10);
+                }
+              };
 
-  // Load the content
-  const htmlContent = generateHtmlContent(responseText, isLoading);
-  popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
-  popupWindow.show();
+              if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
+                value.forEach((item, index) => {
+                  const uniqueId = \`\${key}-array-\${index}\`;
+                  processTab(item.value, item.tag, uniqueId);
+                });
+              } else if (value) {
+                const uniqueId = \`\${key}-string\`;
+                processTab(value, '', uniqueId);
+              }
+            }
+          });
+          
+          ipcRenderer.on('loading-complete', () => {
+            const loadingDiv = document.querySelector('.loading-dots');
+            if (loadingDiv) {
+               // Optional: show "No content" if empty? 
+               // For now do nothing, as content replaces loading.
+            }
+          });
+          true; // Return serializable value
+        `);
+      });
+    }
+
+    // Load the content
+    const htmlContent = generateHtmlContent(responseText, isLoading);
+    popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+    popupWindow.show();
+    
+    // Update state
+    isPopupShowingContent = hasContent;
+    
+  } else {
+    // Window exists and we are already showing content (or compatible state).
+    // Send update via IPC.
+    popupWindow.webContents.send('add-tab', responseText.output);
+    
+    // Update state just in case
+    if (hasContent) {
+       isPopupShowingContent = true;
+    }
+    
+    if (!isLoading) {
+      popupWindow.webContents.send('loading-complete');
+    }
+  }
   
   return popupWindow;
 }
