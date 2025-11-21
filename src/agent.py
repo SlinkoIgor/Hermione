@@ -1,100 +1,16 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-from langchain_core.tools import BaseTool
 from src.tools.function_calculator import calculate_formula
-from src.tools.tz_convertor import convert_time, get_current_time, get_shifted_time
-from src.tools.llm_tools import translate_text, fix_text, text_summarization, text_reformulation, generate_bash_command
-from src.tools.currency_converter import convert_currency
+from src.tools.llm_tools import translate_text, fix_text, text_summarization, text_reformulation
 from src.llm_providers import get_openai_llm, get_litellm_llm
 from textwrap import dedent
 from typing import Dict, Any, List, Literal, Union
 from dataclasses import dataclass, field
 import logging
-import time
-import functools
 import asyncio
 
 logger = logging.getLogger(__name__)
 
-_timing_data = []
-
-def timed_node(node_name):
-    def decorator(func):
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            start_time = time.time()
-            try:
-                result = await func(*args, **kwargs)
-                elapsed = time.time() - start_time
-                _timing_data.append({
-                    "node": node_name,
-                    "time": elapsed,
-                    "timestamp": time.time()
-                })
-                logger.info(f"[TIMING] {node_name}: {elapsed:.3f}s")
-                return result
-            except Exception as e:
-                elapsed = time.time() - start_time
-                _timing_data.append({
-                    "node": node_name,
-                    "time": elapsed,
-                    "error": str(e),
-                    "timestamp": time.time()
-                })
-                logger.error(f"[TIMING] {node_name} FAILED after {elapsed:.3f}s: {e}")
-                raise
-        return wrapper
-    return decorator
-
-def get_timing_data():
-    return _timing_data.copy()
-
-def clear_timing_data():
-    global _timing_data
-    _timing_data = []
-
-
-time_zone_prompt = dedent("""
-    You are a timezone converter. You don't chat. You need to handle timezone-related queries and produce a response in {query_language}.
-
-    #Below are the examples how to solve the task:
-
-    1. Current time queries:
-    **Query:** "What time is it in Paris?"
-    **Answer:** "Current time in Paris is 14:30"
-    (use get_current_time function)
-
-    2. Time shift queries:
-    **Query:** "What time will it be in Tokyo in 3 hours?"
-    **Answer:** "Current time in Tokyo is 14:30, in 3 hours it will be 17:30"
-    (use get_shifted_time function)
-
-    3. Time conversion queries:
-    **Query:** "If it's 10 AM in New York, what time is it in London?"
-    **Answer:** "10:00 AM in New York == 15:00 in London"
-    (use convert_time function)
-
-    4. Russian natural language time queries:
-    **Query:** "давай встретимся в 3 дня по Барселоне"
-    **Answer:** "3 дня по Барселоне == 16:00 по Никосии"
-    (use convert_time function, where the second timezone is the current location)
-
-    **RETURN ONLY THE ANSWER, NO OTHER TEXT.**
-
-    To generate the answer, you need to:
-    1. Determine which function(s) to use based on the query:
-       - get_current_time: for current time queries
-       - get_shifted_time: for time shift queries
-       - convert_time: for time conversion between zones
-    2. Convert location names to correct timezone format (e.g. "Europe/Berlin", "America/New_York")
-    3. Call the appropriate function(s) with correct arguments
-    4. Construct the answer from the result(s)
-    5. For meeting time queries, the answer should be in the format: '<input time/phrase> == <converted time> по <current location> [local time]'
-    6. IMPORTANT: The answer MUST be in {query_language}
-
-    YOU MUST CALL THE TOOL!!!
-    YOU MUST CALL THE TOOL!!!
-    """)
 
 math_formula_calculation_prompt = dedent("""
     To generate the answer, you need to:
@@ -119,27 +35,6 @@ math_formula_calculation_prompt = dedent("""
     ```
 
     **RETURN ONLY THE ANSWER, NO OTHER TEXT.**
-    """)
-
-currency_conversion_prompt = dedent("""
-    #Below are the examples how to solve the task:
-
-    **Query:** "How much is 100 USD in EUR?"
-    **Tool call:** convert_currency(amount=100, source_currency="USD", target_currency="EUR")
-
-    **Query:** "Convert 50 EUR to USD"
-    **Tool call:** convert_currency(amount=50, source_currency="EUR", target_currency="USD")
-
-    **Query:** "What is 200 RUB?"
-    **Tool call:** convert_currency(amount=200, source_currency="RUB", target_currency="{native_currency}")
-
-    To generate the answer, you need to:
-    1. Extract the amount and currency codes from the query
-    2. Call convert_currency tool with the correct arguments
-    3. Use {native_currency} as target_currency ONLY if the target currency is not specified in the query
-
-    YOU MUST CALL THE TOOL!!!
-    YOU MUST CALL THE TOOL!!!
     """)
 
 router_prompt = dedent("""
@@ -180,16 +75,12 @@ class AgentState:
     query_language: str = ""
     tool_warning: bool = False
     existent: str = ""
-    out_tz_conversion: str = ""
     out_math_result: str = ""
     out_math_script: str = ""
-    out_currency_conversion: str = ""
-    out_bash_command: str = ""
     out_translation: str = ""
     out_fixed: str = ""
     out_tldr: str = ""
     out_reformulation: str = ""
-    out_text: str = ""
 
     def update(self, updates: Dict[str, Any]):
         for key, value in updates.items():
@@ -211,16 +102,12 @@ class AgentState:
             "query_language": self.query_language,
             "tool_warning": self.tool_warning,
             "existent": self.existent,
-            "out_tz_conversion": self.out_tz_conversion,
             "out_math_result": self.out_math_result,
             "out_math_script": self.out_math_script,
-            "out_currency_conversion": self.out_currency_conversion,
-            "out_bash_command": self.out_bash_command,
             "out_translation": self.out_translation,
             "out_fixed": self.out_fixed,
             "out_tldr": self.out_tldr,
             "out_reformulation": self.out_reformulation,
-            "out_text": self.out_text,
         }
 
 
@@ -304,46 +191,6 @@ class AgentBuilder:
         reasoning_effort = "low" if self.thinking_budget is not None else "None"
         return f"provider={self.provider}, models={model_names}, reasoning_effort={reasoning_effort}"
 
-    async def invoke_llm_with_tools(
-        self,
-        tools: List[BaseTool],
-        system_message: SystemMessage,
-        user_message: HumanMessage,
-        check_tool_calls: bool = True,
-        use_fast: bool = False
-    ) -> Dict[str, Any]:
-        llm = self._get_llm(use_fast=use_fast).bind_tools(tools, parallel_tool_calls=False)
-        response = await llm.ainvoke([system_message, user_message])
-
-        if check_tool_calls and not any(hasattr(msg, 'tool_calls') and msg.tool_calls for msg in [response]):
-            logger.warning("Tool wasn't called in the response")
-            return {"messages": [system_message, response], "tool_warning": True}
-
-        return {"messages": [system_message, response], "tool_warning": False}
-
-    async def _execute_tool_calls(self, message: AIMessage) -> List[AIMessage]:
-        results = []
-        if hasattr(message, 'tool_calls') and message.tool_calls:
-            for tool_call in message.tool_calls:
-                tool_name = tool_call.get('name')
-                tool_args = tool_call.get('args', {})
-
-                result_content = None
-                if tool_name == 'convert_time':
-                    result_content = convert_time(**tool_args)
-                elif tool_name == 'get_current_time':
-                    result_content = get_current_time(**tool_args)
-                elif tool_name == 'get_shifted_time':
-                    result_content = get_shifted_time(**tool_args)
-                elif tool_name == 'convert_currency':
-                    result_content = convert_currency(**tool_args)
-
-                if result_content is not None:
-                    results.append(AIMessage(content=str(result_content)))
-
-        return results
-
-    @timed_node("task_router_node")
     async def _task_router_node(self, state: AgentState) -> Dict[str, Any]:
         router_llm = self._get_single_llm(use_fast=True)
         logger.info(f"[MODEL_INFO] task_router_node: {self._get_model_info(use_fast=True)}")
@@ -364,8 +211,7 @@ class AgentBuilder:
         return {"tasks": task_names,
                 "is_native_language": is_native_language,
                 "query_language": query_language,
-                "existent": user_message.content,
-                "out_text": user_message.content}
+                "existent": user_message.content}
 
     def _get_routes(self, state: AgentState) -> list[str]:
         routes = []
@@ -380,7 +226,6 @@ class AgentBuilder:
                 routes.append(f"{task}_node")
         return routes
 
-    @timed_node("text_translation_node")
     async def _text_translation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_translation_node: {model_info}")
@@ -393,7 +238,6 @@ class AgentBuilder:
         )
         return {"out_translation": translated_text}
 
-    @timed_node("text_fix_node")
     async def _text_fix_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_fix_node: {model_info}")
@@ -403,7 +247,6 @@ class AgentBuilder:
         )
         return {"out_fixed": fixed_text}
 
-    @timed_node("text_summarization_node")
     async def _text_summarization_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_summarization_node: {model_info}")
@@ -414,7 +257,6 @@ class AgentBuilder:
         )
         return {"out_tldr": tldr_text}
 
-    @timed_node("text_reformulation_node")
     async def _text_reformulation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_reformulation_node: {model_info}")
@@ -424,24 +266,6 @@ class AgentBuilder:
         )
         return {"out_reformulation": reformulated_text}
 
-    @timed_node("tz_conversion_node")
-    async def _tz_conversion_node(self, state: AgentState) -> Dict[str, Any]:
-        system_msg = SystemMessage(
-            time_zone_prompt.format(current_location=self.current_location, query_language=state.query_language))
-        return await self.invoke_llm_with_tools(
-            tools=[convert_time, get_current_time, get_shifted_time],
-            system_message=system_msg,
-            user_message=state.messages[0]
-        )
-
-    @timed_node("tz_conversion_outro_node")
-    async def _tz_conversion_outro_node(self, state: AgentState) -> Dict[str, Any]:
-        tz_conversion_llm = self._get_single_llm(use_fast=True)
-        logger.info(f"[MODEL_INFO] tz_conversion_outro_node: {self._get_model_info(use_fast=True)}")
-        response = await tz_conversion_llm.ainvoke(state.messages)
-        return {"out_tz_conversion": response.content}
-
-    @timed_node("math_formula_calculation_node")
     async def _math_formula_calculation_node(self, state: AgentState) -> Dict[str, Any]:
         math_formula_calculation_llm = self._get_single_llm(use_fast=True)
         logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=True)}")
@@ -451,48 +275,6 @@ class AgentBuilder:
             "out_math_result": str(calculation_result),
             "out_math_script": response.content
         }
-
-    @timed_node("currency_conversion_node")
-    async def _currency_conversion_node(self, state: AgentState) -> Dict[str, Any]:
-        system_msg = SystemMessage(
-            currency_conversion_prompt.format(native_currency=self.native_currency))
-        return await self.invoke_llm_with_tools(
-            tools=[convert_currency],
-            system_message=system_msg,
-            user_message=state.messages[0]
-        )
-
-    @timed_node("currency_conversion_outro_node")
-    async def _currency_conversion_outro_node(self, state: AgentState) -> Dict[str, Any]:
-        last_message = state.messages[-1]
-        result = ""
-
-        if hasattr(last_message, 'content'):
-            try:
-                import ast
-                result_dict = ast.literal_eval(last_message.content)
-
-                conversion_result = result_dict.get('result')
-                amount = result_dict.get('amount', 0)
-                source_currency = result_dict.get('source_currency', '')
-                target_currency = result_dict.get('target_currency', '')
-
-                if conversion_result is not None:
-                    result = f"{amount} {source_currency} == {conversion_result:.2f} {target_currency}"
-                else:
-                    error_msg = result_dict.get('error', 'Unknown error')
-                    result = f"Error: {error_msg}"
-            except (ValueError, SyntaxError):
-                result = "Error: Could not parse currency conversion result"
-        else:
-            result = "Error: Could not extract currency conversion result"
-
-        return {"messages": [AIMessage("")], "out_currency_conversion": result}
-
-    @timed_node("bash_command_node")
-    async def _bash_command_node(self, state: AgentState) -> Dict[str, Any]:
-        bash_command = await generate_bash_command(state.messages[0].content)
-        return {"out_bash_command": bash_command}
 
     def _get_tag_for_model(self, model_name: str, num_models: int = 1) -> str:
         if num_models <= 1:
@@ -571,7 +353,7 @@ class AgentBuilder:
                         for key, value in result.items():
                             if key.startswith("out_"):
                                 yield {
-                                    "output_key": output_key,
+                                    "output_key": key[4:],
                                     "value": value,
                                     "tag": tag,
                                     "model": model_name

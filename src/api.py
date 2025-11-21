@@ -4,6 +4,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Literal
 import uvicorn
+from dotenv import load_dotenv
+import os
+import sys
+
+# Load environment variables from .env file in the root directory
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
+
 from agent import AgentBuilder
 from agent_config import get_agent_config
 import json
@@ -11,16 +18,10 @@ from langchain_core.messages import HumanMessage
 import logging
 import time
 from datetime import datetime
-import sys
-import os
 import signal
 import asyncio
 import httpx
-from dotenv import load_dotenv
 from contextlib import asynccontextmanager
-
-# Load environment variables from .env file in the root directory
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
 # Determine if we're in development mode
 IS_DEV = os.getenv('NODE_ENV') == 'development'
@@ -147,22 +148,28 @@ async def check_litellm_availability() -> bool:
             logger.warning("LITELLM_API_KEY not set, LiteLLM unavailable")
             return False
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            test_payload = {
-                "model": "gemini-2.5-flash-lite",
-                "messages": [{"role": "user", "content": "test"}],
-                "max_tokens": 1
-            }
-            response = await client.post(f"{litellm_host}/chat/completions", headers=headers, json=test_payload)
-            is_available = 200 <= response.status_code < 300
-            if not is_available:
-                logger.warning(f"LiteLLM availability check failed with status {response.status_code}: {response.text}")
-            else:
-                logger.info("LiteLLM is available")
-            return is_available
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            # Simple health check if possible, or minimal model check
+            # Assuming /health or root endpoint exists, otherwise fallback to models list
+            try:
+                # Try a lighter endpoint first if available, else stick to existing check but faster timeout
+                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                test_payload = {
+                    "model": "gemini-2.5-flash-lite",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1
+                }
+                response = await client.post(f"{litellm_host}/chat/completions", headers=headers, json=test_payload)
+                is_available = 200 <= response.status_code < 300
+                if not is_available:
+                    logger.warning(f"LiteLLM availability check failed with status {response.status_code}")
+                else:
+                    logger.info("LiteLLM is available")
+                return is_available
+            except:
+                return False
     except Exception as e:
-        logger.warning(f"LiteLLM availability check failed: {type(e).__name__}: {str(e)}")
+        logger.warning(f"LiteLLM availability check failed: {str(e)}")
         return False
 
 async def get_providers_to_run(provider_mode: str) -> list[str]:
@@ -172,50 +179,19 @@ async def get_providers_to_run(provider_mode: str) -> list[str]:
     if provider_mode == "openai_only":
         providers.append("openai")
     elif provider_mode == "litellm_only":
-        litellm_available = await check_litellm_availability()
-        if litellm_available:
+        if await check_litellm_availability():
             providers.append("litellm")
         else:
             logger.warning("LiteLLM unavailable, falling back to OpenAI")
             providers.append("openai")
     elif provider_mode == "both":
-        litellm_available = await check_litellm_availability()
         providers.append("openai")
-        if litellm_available:
+        if await check_litellm_availability():
             providers.append("litellm")
         else:
             logger.warning("LiteLLM unavailable, using OpenAI only")
 
     return providers
-
-async def run_agent_async(provider: str, human_message: HumanMessage) -> tuple[str, Dict[str, Any], bool]:
-    """Run an agent asynchronously and return provider name, result, and tool_warning."""
-    try:
-        logger.info(f"Running agent with provider: {provider}")
-        config = get_agent_config(provider=provider)
-        agent_instance = AgentBuilder(provider=provider, **config).build()
-
-        result = await agent_instance.ainvoke({"messages": [human_message]})
-        tool_warning = result.get("tool_warning", False)
-
-        output = {}
-        for key, value in result.items():
-            if key.startswith("out_") and value:
-                output_key = key[4:]
-                
-                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                    output[output_key] = value
-                else:
-                    output[output_key] = value
-
-        return provider, output, tool_warning
-    except Exception as e:
-        logger.error(f"Error running agent with provider {provider}: {str(e)}", exc_info=True)
-        if provider == "litellm":
-            logger.warning(f"LiteLLM provider failed, continuing without it")
-            return provider, {}, False
-        else:
-            raise
 
 async def run_agent_streaming(provider: str, human_message: HumanMessage):
     """Run an agent with streaming results as they complete."""
@@ -242,50 +218,6 @@ async def run_agent_streaming(provider: str, human_message: HumanMessage):
             logger.warning(f"LiteLLM provider failed, continuing without it")
         else:
             raise
-
-@app.post("/runs")
-async def run(request: SimpleRequest):
-    """
-    Process a user message and return the agent's response.
-    Supports running with OpenAI only, LiteLLM only, or both providers.
-    Runs agents in parallel when provider_mode is "both".
-    """
-    try:
-        logger.info(f"Processing request with content: {request.content[:100]}... provider_mode: {request.provider_mode}")
-        user_message = request.content
-        human_message = HumanMessage(content=user_message)
-
-        providers_to_run = await get_providers_to_run(request.provider_mode)
-        all_results = {}
-        tool_warnings = []
-
-        if len(providers_to_run) > 1:
-            tasks = [run_agent_async(provider, human_message) for provider in providers_to_run]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for result in results:
-                if isinstance(result, Exception):
-                    logger.error(f"Agent execution failed: {result}", exc_info=True)
-                    continue
-                provider, output, tool_warning = result
-                tool_warnings.append(tool_warning)
-                all_results.update(output)
-        else:
-            for provider in providers_to_run:
-                _, output, tool_warning = await run_agent_async(provider, human_message)
-                tool_warnings.append(tool_warning)
-                all_results.update(output)
-
-        response_data = {
-            "tool_warning": any(tool_warnings),
-            "output": all_results
-        }
-
-        logger.info(f"Request processed successfully, response: {response_data}")
-        return response_data
-    except Exception as e:
-        logger.error(f"Error in run: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/runs/stream")
 async def run_stream(request: SimpleRequest):

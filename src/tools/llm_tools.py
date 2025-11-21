@@ -70,39 +70,6 @@ async def fix_text(
     return response.content
 
 
-async def explain_word(
-    word: str,
-    native_language: str,
-    llm: ChatOpenAI = None
-) -> str:
-    """Explains a word in the user's native language.
-
-    Parameters:
-        word: The word to be explained (can be in any language).
-        native_language: The user's native language (e.g., "Spanish", "Russian").
-        llm: The LLM to use for explanation.
-
-    Returns:
-        An explanation of the word in the user's native language.
-
-    Examples:
-        explain_word("algorithm", "Spanish") returns an explanation of "algorithm" in Spanish
-        explain_word("récursion", "French") returns an explanation of "récursion" in French
-    """
-    system_message = SystemMessage(dedent(f"""You are a language teacher and word expert.
-        Your task is to explain the meaning of the given word in {native_language}.
-        Provide a clear definition, usage examples, and any relevant context.
-        The explanation should be in {native_language} to help the user understand.
-        The word could be from any language, so identify the language and explain accordingly.
-        The exaplanation should have no more than 100 words,
-        and start with the query word/phrase in that {native_language}."""))
-
-    messages = [system_message, HumanMessage(content=word)]
-
-    response = await llm.ainvoke(messages)
-    return response.content
-
-
 async def text_summarization(
     text: str,
     native_language: str,
@@ -160,51 +127,14 @@ async def text_reformulation(
     return response.content
 
 
-async def generate_bash_command(
-    text: str,
-    llm: ChatOpenAI = None
-) -> str:
-    """Generates a bash command based on text input.
-
-    Parameters:
-        text: Either an incorrect bash command or a natural language description
-             of what the user wants to do with bash.
-        llm: The LLM to use for bash command generation.
-    Returns:
-        A valid one-liner bash command. If the command contains dangerous operations
-        (like rm, mv), a warning about the risks will be included.
-
-    Examples:
-        generate_bash_command("list all files in current directory") returns "ls -la"
-        generate_bash_command("rm -rf *") returns "rm -rf *\nWARNING: This command will permanently delete all files in the current directory without confirmation. Use with extreme caution."
-    """
-    system_prompt = dedent(f"""You are a bash command expert.
-    Generate a valid one-liner bash command based on the input.
-    The input could be either an incorrect bash command or a natural language description.
-    If the command contains dangerous operations (like rm, mv, etc.),
-    add a warning about the risks in the next separate line, starting with #.
-    Only return the command and warning (if applicable), no explanations or other text.
-    The command must be a one-liner.""")
-
-    messages = [SystemMessage(system_prompt), HumanMessage(text)]
-
-    response = await llm.ainvoke(messages)
-    response_content = response.content
-    if response_content.startswith("```bash"):
-        response_content = response_content[len("```bash"):].strip()
-    if response_content.endswith("```"):
-        response_content = response_content[:-3].strip()
-    response.content = response_content
-    return response.content
-
-
 if __name__ == "__main__":
-    original = "Hello world"
-    translated = translate_text(original, "Spanish", "Spanish", True)
-    print(f"Original: {original}")
-    print(f"Translated: {translated}")
+    import asyncio
+    
+    async def main():
+        original = "Hello world"
+        # Note: You'll need to initialize an LLM instance here for this to work directly
+        # translated = await translate_text(original, "Spanish", "Spanish", True)
+        # print(f"Original: {original}")
+        # print(f"Translated: {translated}")
 
-    original_fr = "Bonjour le monde"
-    translated_from_fr = translate_text(original_fr, "English", "German", False)
-    print(f"Original: {original_fr}")
-    print(f"Translated: {translated_from_fr}")
+    asyncio.run(main())
