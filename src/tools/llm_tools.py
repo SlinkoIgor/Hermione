@@ -150,6 +150,7 @@ async def text_enrichment(
     5. Preserve the original formatting (lines, paragraphs).
     6. Do not overdo it; make it look professional yet lively.
     7. Lean towards using rare emoji tags
+    8. When using emoji tags that could be absent in the user packs, put an alternative common emoji tag next to it.
 
     Example style:
     "Last :fri: we discussed on how to improve speed of LLM generation.

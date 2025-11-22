@@ -222,6 +222,20 @@ function createPopupWindow(responseText, isLoading = false) {
     const output = response.output || {};
     console.log('Output dictionary:', JSON.stringify(output));
 
+    // Mapping for tab icons
+    const tabIcons = {
+      'existent': '📄',
+      'translation': '🌎',
+      'fixed': '✍️',
+      'tldr': '⚡',
+      'reformulation': '🔄',
+      'enrichment': '🦄',
+      'math_result': '🔢',
+      'math_script': '🐍'
+    };
+
+    const getTabIcon = (key) => tabIcons[key] || key;
+
     // Create tabs for each section
     const tabs = [];
     const tabContents = [];
@@ -239,7 +253,7 @@ function createPopupWindow(responseText, isLoading = false) {
       if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
         value.forEach((item, itemIndex) => {
           const tag = item.tag || '';
-          const tabName = `${key} ${tag}`.trim();
+          const tabName = `${getTabIcon(key)} ${tag}`.trim();
           const isActive = startTabIndex === lastActiveTab;
           const uniqueId = `${key}-array-${itemIndex}`;
           tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
@@ -249,7 +263,8 @@ function createPopupWindow(responseText, isLoading = false) {
       } else {
         const isActive = startTabIndex === lastActiveTab;
         const uniqueId = `${key}-string`;
-        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${key}</div>`);
+        const tabName = getTabIcon(key);
+        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
         tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${value}</div>`);
         startTabIndex = 1;
       }
@@ -261,7 +276,7 @@ function createPopupWindow(responseText, isLoading = false) {
       if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
         value.forEach((item, itemIndex) => {
           const tag = item.tag || '';
-          const tabName = `${key} ${tag}`.trim();
+          const tabName = `${getTabIcon(key)} ${tag}`.trim();
           const isActive = globalTabIndex === lastActiveTab;
           const uniqueId = `${key}-array-${itemIndex}`;
           tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
@@ -271,7 +286,8 @@ function createPopupWindow(responseText, isLoading = false) {
       } else {
         const isActive = globalTabIndex === lastActiveTab;
         const uniqueId = `${key}-string`;
-        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}" data-unique-id="${uniqueId}">${key}</div>`);
+        const tabName = getTabIcon(key);
+        tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
         tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${value}</div>`);
         globalTabIndex++;
       }
@@ -378,6 +394,8 @@ function createPopupWindow(responseText, isLoading = false) {
             white-space: nowrap;
             transition: all 0.2s ease;
             -webkit-app-region: no-drag;
+            font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+            filter: grayscale(100%) contrast(150%);
           }
           .tab:hover {
             background-color: rgba(0, 0, 0, 0.1);
@@ -585,6 +603,20 @@ function createPopupWindow(responseText, isLoading = false) {
             const tabContentsContainer = document.getElementById('content');
             
             if (!tabsContainer || !tabContentsContainer) return;
+
+            // Mapping for dynamic updates
+            const tabIcons = {
+              'existent': '📄',
+              'translation': '🌎',
+              'fixed': '✍️',
+              'tldr': '⚡',
+              'reformulation': '🔄',
+              'enrichment': '🦄',
+              'math_result': '🔢',
+              'math_script': '🐍'
+            };
+
+            const getTabIcon = (key) => tabIcons[key] || key;
             
             // Remove loading if present
             const loadingDiv = document.querySelector('.loading-dots');
@@ -607,7 +639,8 @@ function createPopupWindow(responseText, isLoading = false) {
                 }
                 
                 const tabCount = document.querySelectorAll('.tab').length;
-                const tabName = (key + ' ' + (itemTag || '')).trim();
+                // Use getTabIcon here instead of key directly
+                const tabName = (getTabIcon(key) + ' ' + (itemTag || '')).trim();
                 
                 const newTab = document.createElement('div');
                 newTab.className = 'tab';

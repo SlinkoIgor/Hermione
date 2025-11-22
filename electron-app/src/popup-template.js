@@ -116,6 +116,21 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
 
   const output = response.output || {};
 
+  const tabIcons = {
+    'existent': '📄',
+    'translation': '🌎',
+    'fixed': '✍️',
+    'tldr': '⚡',
+    'reformulation': '🔄',
+    'enrichment': '🦄',
+    'math_result': '🔢',
+    'math_script': '🐍'
+  };
+
+  function getTabIcon(key) {
+    return tabIcons[key] || key;
+  }
+
   // Create tabs for each section
   const tabs = [];
   const tabContents = [];
@@ -132,7 +147,7 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
       value.forEach((item, itemIndex) => {
         const tag = item.tag || '';
-        const tabName = `${key} ${tag}`.trim();
+        const tabName = `${getTabIcon(key)} ${tag}`.trim();
         const uniqueId = `${key}-array-${itemIndex}`;
         const isActive = startTabIndex === lastActiveTab;
         tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
@@ -142,7 +157,8 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
     } else {
       const uniqueId = `${key}-string`;
       const isActive = startTabIndex === lastActiveTab;
-      tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${key}</div>`);
+      const tabName = getTabIcon(key);
+      tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
       tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${value}</div>`);
       startTabIndex++;
     }
@@ -244,11 +260,13 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
           margin-right: 4px;
           background-color: rgba(0, 0, 0, 0.05);
           border-radius: 4px;
-          font-size: 11px;
+          font-size: 14px;
           cursor: pointer;
           white-space: nowrap;
           transition: all 0.2s ease;
           -webkit-app-region: no-drag;
+          font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+          filter: grayscale(100%) contrast(150%);
         }
         .tab:hover {
           background-color: rgba(0, 0, 0, 0.1);
@@ -318,6 +336,22 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
       </div>
       <script>
         document.addEventListener('DOMContentLoaded', function() {
+          // Mapping for dynamic updates
+          window.tabIcons = {
+            'existent': '📄',
+            'translation': '🌎',
+            'fixed': '✍️',
+            'tldr': '⚡',
+            'reformulation': '🔄',
+            'enrichment': '🦄',
+            'math_result': '🔢',
+            'math_script': '🐍'
+          };
+
+          window.getTabIcon = function(key) {
+            return window.tabIcons[key] || key;
+          };
+
           // Tab switching functionality
           const tabsContainer = document.getElementById('tabsContainer');
           
