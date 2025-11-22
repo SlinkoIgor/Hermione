@@ -127,6 +127,48 @@ async def text_reformulation(
     return response.content
 
 
+async def text_enrichment(
+    text: str,
+    llm: ChatOpenAI = None
+) -> str:
+    """Enriches the text with Slack-style emoji tags.
+
+    Parameters:
+        text: The text to be enriched.
+        llm: The LLM to use for enrichment.
+    Returns:
+        The enriched text with emoji tags.
+    """
+    system_prompt = dedent("""You are an expert content creator who loves using Slack emojis to make text more engaging and visual.
+    Your task is to enrich the given text by adding relevant Slack-style emoji tags (shortcodes like :smile:, :rocket:, :tv:, etc.).
+
+    Guidelines:
+    1. Insert emoji tags where they add value, context, or visual appeal.
+    2. Use a variety of tags appropriate for the context (tech, emotions, objects, etc.).
+    3. You can place tags before headers, bullet points, or key terms. Also after if you want to emphasize something.
+    4. Keep the original text content and meaning intact.
+    5. Preserve the original formatting (lines, paragraphs).
+    6. Do not overdo it; make it look professional yet lively.
+    7. Lean towards using rare emoji tags
+
+    Example style:
+    "Last :fri: we discussed on how to improve speed of LLM generation.
+
+    :tv: Recording
+    :noted-anime: Gemini notes
+    :miro: Miro board
+
+    What did we cover:
+    :phoenix_wright_taps_paper:Grouped attention"
+
+    Only return the enriched text, no explanations.""")
+
+    messages = [SystemMessage(system_prompt), HumanMessage(text)]
+
+    response = await llm.ainvoke(messages)
+    return response.content
+
+
 if __name__ == "__main__":
     import asyncio
     

@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from src.tools.function_calculator import calculate_formula
-from src.tools.llm_tools import translate_text, fix_text, text_summarization, text_reformulation
+from src.tools.llm_tools import translate_text, fix_text, text_summarization, text_reformulation, text_enrichment
 from src.llm_providers import get_openai_llm, get_litellm_llm
 from textwrap import dedent
 from typing import Dict, Any, List, Literal, Union
@@ -81,6 +81,7 @@ class AgentState:
     out_fixed: str = ""
     out_tldr: str = ""
     out_reformulation: str = ""
+    out_enrichment: str = ""
 
     def update(self, updates: Dict[str, Any]):
         for key, value in updates.items():
@@ -108,6 +109,7 @@ class AgentState:
             "out_fixed": self.out_fixed,
             "out_tldr": self.out_tldr,
             "out_reformulation": self.out_reformulation,
+            "out_enrichment": self.out_enrichment,
         }
 
 
@@ -222,6 +224,7 @@ class AgentBuilder:
                 routes.append("text_translation_node")
                 routes.append("text_fix_node")
                 routes.append("text_reformulation_node")
+                routes.append("text_enrichment_node")
             elif task == "math_formula_calculation":
                 routes.append(f"{task}_node")
         return routes
@@ -265,6 +268,15 @@ class AgentBuilder:
             llm=llm
         )
         return {"out_reformulation": reformulated_text}
+
+    async def _text_enrichment_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+        model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
+        logger.info(f"[MODEL_INFO] text_enrichment_node: {model_info}")
+        enriched_text = await text_enrichment(
+            text=state.messages[0].content,
+            llm=llm
+        )
+        return {"out_enrichment": enriched_text}
 
     async def _math_formula_calculation_node(self, state: AgentState) -> Dict[str, Any]:
         math_formula_calculation_llm = self._get_single_llm(use_fast=True)
@@ -327,6 +339,9 @@ class AgentBuilder:
                 elif route == "text_reformulation_node":
                     task = asyncio.create_task(self._text_reformulation_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_reformulation"}
+                elif route == "text_enrichment_node":
+                    task = asyncio.create_task(self._text_enrichment_node(state, llm, model_name))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_enrichment"}
                 elif route == "math_formula_calculation_node":
                     task = asyncio.create_task(self._math_formula_calculation_node(state))
                     metadata = {"route": route, "model": model_name, "output_key": "out_math_result"}
@@ -394,6 +409,9 @@ class AgentBuilder:
                 elif route == "text_reformulation_node":
                     tasks.append(self._text_reformulation_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_reformulation"})
+                elif route == "text_enrichment_node":
+                    tasks.append(self._text_enrichment_node(state, llm, model_name))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_enrichment"})
                 elif route == "math_formula_calculation_node":
                     tasks.append(self._math_formula_calculation_node(state))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_math_result"})
