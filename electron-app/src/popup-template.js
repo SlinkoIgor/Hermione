@@ -123,6 +123,7 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
     'tldr': '⚡',
     'reformulation': '🔄',
     'enrichment': '🦄',
+    'emoji': '🙏',
     'math_result': '🔢',
     'math_script': '🐍'
   };
@@ -344,6 +345,7 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
             'tldr': '⚡',
             'reformulation': '🔄',
             'enrichment': '🦄',
+            'emoji': '🙏',
             'math_result': '🔢',
             'math_script': '🐍'
           };

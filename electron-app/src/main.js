@@ -612,6 +612,7 @@ function createPopupWindow(responseText, isLoading = false) {
               'tldr': '⚡',
               'reformulation': '🔄',
               'enrichment': '🦄',
+              'emoji': '🙏',
               'math_result': '🔢',
               'math_script': '🐍'
             };

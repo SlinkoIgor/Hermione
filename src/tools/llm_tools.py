@@ -170,6 +170,33 @@ async def text_enrichment(
     return response.content
 
 
+async def generate_emoji(
+    text: str,
+    llm: ChatOpenAI = None
+) -> str:
+    """Generates several emojis that correspond to the given word or words.
+
+    Parameters:
+        text: The word or words to generate emojis for.
+        llm: The LLM to use for emoji generation.
+    Returns:
+        A string with several emojis that correspond to the input.
+    """
+    system_prompt = dedent("""You are an emoji expert.
+    Generate 5-7 relevant emojis that correspond to the given word or words.
+    Only return the emojis themselves, separated by spaces, no explanations or other text.
+
+    Examples:
+    Input: "dog" -> 🐕 🐶 🦮 🐕‍🦺 🐩
+    Input: "happy birthday" -> 🎂 🎉 🎈 🎁 🥳 🎊
+    Input: "coffee" -> ☕ 🍵 ☕️ 🥤 ☕""")
+
+    messages = [SystemMessage(system_prompt), HumanMessage(text)]
+
+    response = await llm.ainvoke(messages)
+    return response.content
+
+
 if __name__ == "__main__":
     import asyncio
     

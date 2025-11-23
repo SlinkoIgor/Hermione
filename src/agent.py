@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from src.tools.function_calculator import calculate_formula
-from src.tools.llm_tools import translate_text, fix_text, text_summarization, text_reformulation, text_enrichment
+from src.tools.llm_tools import translate_text, fix_text, text_summarization, text_reformulation, text_enrichment, generate_emoji
 from src.llm_providers import get_openai_llm, get_litellm_llm
 from textwrap import dedent
 from typing import Dict, Any, List, Literal, Union
@@ -43,6 +43,7 @@ router_prompt = dedent("""
     Possible tasks:
     1. math_formula_calculation - If the input has a math formula
     2. text_task - all other cases
+    3. emoji_generation - If the input is 1-3 words (not a sentence)
 
     In cases when you doubt whether to include a task in the list – it's better to include it.
 
@@ -61,6 +62,7 @@ router_prompt = dedent("""
     - Input in {native_language}: "text_task,{native_language},True"
     - Input in English: "text_task,English,False"
     - Input in Spanish: "text_task,Spanish,False"
+    - Input with 1-2 words: "emoji_generation,text_task,English,False"
 
     The second-to-last part (query_language) should be the detected language name.
     The last part (is_native_language) must be "True" if the input is in {native_language}, "False" otherwise.
@@ -82,6 +84,7 @@ class AgentState:
     out_tldr: str = ""
     out_reformulation: str = ""
     out_enrichment: str = ""
+    out_emoji: str = ""
 
     def update(self, updates: Dict[str, Any]):
         for key, value in updates.items():
@@ -110,6 +113,7 @@ class AgentState:
             "out_tldr": self.out_tldr,
             "out_reformulation": self.out_reformulation,
             "out_enrichment": self.out_enrichment,
+            "out_emoji": self.out_emoji,
         }
 
 
@@ -227,6 +231,8 @@ class AgentBuilder:
                 routes.append("text_enrichment_node")
             elif task == "math_formula_calculation":
                 routes.append(f"{task}_node")
+            elif task == "emoji_generation":
+                routes.append(f"{task}_node")
         return routes
 
     async def _text_translation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
@@ -278,6 +284,15 @@ class AgentBuilder:
         )
         return {"out_enrichment": enriched_text}
 
+    async def _emoji_generation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+        model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
+        logger.info(f"[MODEL_INFO] emoji_generation_node: {model_info}")
+        emoji_text = await generate_emoji(
+            text=state.messages[0].content,
+            llm=llm
+        )
+        return {"out_emoji": emoji_text}
+
     async def _math_formula_calculation_node(self, state: AgentState) -> Dict[str, Any]:
         math_formula_calculation_llm = self._get_single_llm(use_fast=True)
         logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=True)}")
@@ -326,7 +341,7 @@ class AgentBuilder:
             for i, llm in enumerate(llms):
                 model_name = model_names[i] if i < len(model_names) else "unknown"
                 task = None
-                
+
                 if route == "text_translation_node":
                     task = asyncio.create_task(self._text_translation_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_translation"}
@@ -342,10 +357,13 @@ class AgentBuilder:
                 elif route == "text_enrichment_node":
                     task = asyncio.create_task(self._text_enrichment_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_enrichment"}
+                elif route == "emoji_generation_node":
+                    task = asyncio.create_task(self._emoji_generation_node(state, llm, model_name))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_emoji"}
                 elif route == "math_formula_calculation_node":
                     task = asyncio.create_task(self._math_formula_calculation_node(state))
                     metadata = {"route": route, "model": model_name, "output_key": "out_math_result"}
-                
+
                 if task:
                     tasks_list.append(task)
                     metadata_list.append(metadata)
@@ -396,7 +414,7 @@ class AgentBuilder:
         for route in routes:
             for i, llm in enumerate(llms):
                 model_name = model_names[i] if i < len(model_names) else "unknown"
-                
+
                 if route == "text_translation_node":
                     tasks.append(self._text_translation_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_translation"})
@@ -412,6 +430,9 @@ class AgentBuilder:
                 elif route == "text_enrichment_node":
                     tasks.append(self._text_enrichment_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_enrichment"})
+                elif route == "emoji_generation_node":
+                    tasks.append(self._emoji_generation_node(state, llm, model_name))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_emoji"})
                 elif route == "math_formula_calculation_node":
                     tasks.append(self._math_formula_calculation_node(state))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_math_result"})
