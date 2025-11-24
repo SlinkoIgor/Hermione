@@ -1,3 +1,5 @@
+const { TAB_ICONS } = require('./constants');
+
 function generateHtmlContent(response, loading, lastActiveTab = 0) {
   // Only show loading screen if loading is true AND we have no content
   const shouldShowLoading = loading && (!response || !response.output || Object.keys(response.output).length === 0);
@@ -116,20 +118,8 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
 
   const output = response.output || {};
 
-  const tabIcons = {
-    'existent': '📄',
-    'translation': '🌎',
-    'fixed': '✍️',
-    'tldr': '⚡',
-    'reformulation': '🔄',
-    'enrichment': '🦄',
-    'emoji': '🙏',
-    'math_result': '🔢',
-    'math_script': '🐍'
-  };
-
   function getTabIcon(key) {
-    return tabIcons[key] || key;
+    return TAB_ICONS[key] || '';
   }
 
   // Create tabs for each section
@@ -149,6 +139,7 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
       value.forEach((item, itemIndex) => {
         const tag = item.tag || '';
         const tabName = `${getTabIcon(key)} ${tag}`.trim();
+        if (!tabName) return;
         const uniqueId = `${key}-array-${itemIndex}`;
         const isActive = startTabIndex === lastActiveTab;
         tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
@@ -159,6 +150,7 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
       const uniqueId = `${key}-string`;
       const isActive = startTabIndex === lastActiveTab;
       const tabName = getTabIcon(key);
+      if (!tabName) return;
       tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
       tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${value}</div>`);
       startTabIndex++;
@@ -337,21 +329,10 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
       </div>
       <script>
         document.addEventListener('DOMContentLoaded', function() {
-          // Mapping for dynamic updates
-          window.tabIcons = {
-            'existent': '📄',
-            'translation': '🌎',
-            'fixed': '✍️',
-            'tldr': '⚡',
-            'reformulation': '🔄',
-            'enrichment': '🦄',
-            'emoji': '🙏',
-            'math_result': '🔢',
-            'math_script': '🐍'
-          };
+          window.tabIcons = ${JSON.stringify(TAB_ICONS)};
 
           window.getTabIcon = function(key) {
-            return window.tabIcons[key] || key;
+            return window.tabIcons[key] || '';
           };
 
           // Tab switching functionality
