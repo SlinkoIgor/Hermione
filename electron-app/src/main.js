@@ -787,7 +787,6 @@ function registerShortcut() {
       const selectedText = clipboard.readText();
 
       if (selectedText) {
-        // Show loading popup immediately
         let accumulatedOutput = {};
         let allComplete = false;
 
@@ -806,7 +805,7 @@ function registerShortcut() {
               // Ignore errors, keep last value
             }
           }
-          
+
           const responseData = {
             tool_warning: false,
             output: output
@@ -814,6 +813,17 @@ function registerShortcut() {
           createPopupWindow(responseData, isLoading);
         };
 
+        // Close existing popup if present to clear old content
+        if (popupWindow && !popupWindow.isDestroyed()) {
+          popupWindow.destroy();
+          popupWindow = null;
+          isPopupShowingContent = false;
+        }
+
+        // Reset lastActiveTab for new request
+        lastActiveTab = 0;
+
+        // Show fresh loading popup immediately
         updatePopup({}, true);
 
         fetch(`http://${API_HOST}:${API_PORT}/runs/stream`, {
