@@ -134,12 +134,12 @@ class Agent:
 
         return state.to_dict()
 
-    async def ainvoke_streaming(self, input_data: Dict[str, Any]):
+    async def ainvoke_streaming(self, input_data: Dict[str, Any], cancellation_event: asyncio.Event = None):
         state = AgentState()
         if "messages" in input_data:
             state.messages = input_data["messages"]
 
-        async for result in self.builder._run_agent_streaming(state):
+        async for result in self.builder._run_agent_streaming(state, cancellation_event):
             yield result
 
 
@@ -312,11 +312,18 @@ class AgentBuilder:
             return "[o]"
         return ""
 
-    async def _run_agent_streaming(self, state: AgentState):
+    async def _run_agent_streaming(self, state: AgentState, cancellation_event: asyncio.Event = None):
+        if cancellation_event and cancellation_event.is_set():
+            logger.info("Request cancelled before routing")
+            return
+
         result = await self._task_router_node(state)
         state.update(result)
-        
-        # Yield existent text first if available
+
+        if cancellation_event and cancellation_event.is_set():
+            logger.info("Request cancelled after routing")
+            return
+
         if state.existent:
             yield {
                 "output_key": "existent",
@@ -371,18 +378,30 @@ class AgentBuilder:
         if tasks_list:
             pending = set(tasks_list)
             while pending:
+                if cancellation_event and cancellation_event.is_set():
+                    logger.info("Request cancelled during task processing, cancelling all pending tasks")
+                    for task in pending:
+                        task.cancel()
+                    return
+
                 done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                
+
                 for completed_task in done:
+                    if cancellation_event and cancellation_event.is_set():
+                        logger.info("Request cancelled, stopping result processing")
+                        for task in pending:
+                            task.cancel()
+                        return
+
                     try:
                         result = await completed_task
                         task_index = tasks_list.index(completed_task)
                         metadata = metadata_list[task_index]
-                        
+
                         output_key = metadata["output_key"]
                         model_name = metadata["model"]
                         tag = self._get_tag_for_model(model_name, num_models)
-                        
+
                         for key, value in result.items():
                             if key.startswith("out_"):
                                 yield {
@@ -391,6 +410,9 @@ class AgentBuilder:
                                     "tag": tag,
                                     "model": model_name
                                 }
+                    except asyncio.CancelledError:
+                        logger.info("Task was cancelled")
+                        continue
                     except Exception as e:
                         logger.error(f"Task failed: {e}", exc_info=True)
                         continue

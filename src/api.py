@@ -60,6 +60,11 @@ shutdown_event = asyncio.Event()
 # Global agent variable
 agent = None
 
+# Global dictionary to track active requests
+active_requests = {}
+request_counter = 0
+requests_lock = asyncio.Lock()
+
 # Get environment variables
 DEFAULT_PORT = 8123
 PORT = int(os.getenv('API_PORT', str(DEFAULT_PORT)))
@@ -193,18 +198,22 @@ async def get_providers_to_run(provider_mode: str) -> list[str]:
 
     return providers
 
-async def run_agent_streaming(provider: str, human_message: HumanMessage):
+async def run_agent_streaming(provider: str, human_message: HumanMessage, cancellation_event: asyncio.Event):
     """Run an agent with streaming results as they complete."""
     try:
         logger.info(f"Running streaming agent with provider: {provider}")
         config = get_agent_config(provider=provider)
         agent_instance = AgentBuilder(provider=provider, **config).build()
 
-        async for result in agent_instance.ainvoke_streaming({"messages": [human_message]}):
+        async for result in agent_instance.ainvoke_streaming({"messages": [human_message]}, cancellation_event=cancellation_event):
+            if cancellation_event.is_set():
+                logger.info(f"Request cancelled for provider {provider}")
+                break
+
             output_key = result["output_key"]
             if output_key.startswith("out_"):
                 output_key = output_key[4:]
-            
+
             yield {
                 "provider": provider,
                 "output_key": output_key,
@@ -212,6 +221,9 @@ async def run_agent_streaming(provider: str, human_message: HumanMessage):
                 "tag": result["tag"],
                 "model": result["model"]
             }
+    except asyncio.CancelledError:
+        logger.info(f"Request cancelled for provider {provider}")
+        raise
     except Exception as e:
         logger.error(f"Error running streaming agent with provider {provider}: {str(e)}", exc_info=True)
         if provider == "litellm":
@@ -225,9 +237,26 @@ async def run_stream(request: SimpleRequest):
     Process a user message and stream results as they become available.
     Now streams individual model results as they complete.
     """
+    global request_counter
+
+    async with requests_lock:
+        current_request_id = request_counter
+        request_counter += 1
+
+        for request_id, event in list(active_requests.items()):
+            logger.info(f"Cancelling previous request {request_id}")
+            event.set()
+
+        active_requests.clear()
+
+        cancellation_event = asyncio.Event()
+        active_requests[current_request_id] = cancellation_event
+
+    logger.info(f"Starting new request {current_request_id}")
+
     async def generate():
         try:
-            logger.info(f"Processing streaming request with content: {request.content[:100]}... provider_mode: {request.provider_mode}")
+            logger.info(f"Processing streaming request {current_request_id} with content: {request.content[:100]}... provider_mode: {request.provider_mode}")
             user_message = request.content
             human_message = HumanMessage(content=user_message)
 
@@ -244,8 +273,16 @@ async def run_stream(request: SimpleRequest):
                     total_results_expected += 1
 
             for provider in providers_to_run:
+                if cancellation_event.is_set():
+                    logger.info(f"Request {current_request_id} cancelled before provider {provider}")
+                    break
+
                 try:
-                    async for result in run_agent_streaming(provider, human_message):
+                    async for result in run_agent_streaming(provider, human_message, cancellation_event):
+                        if cancellation_event.is_set():
+                            logger.info(f"Request {current_request_id} cancelled during streaming")
+                            break
+
                         output_key = result["output_key"]
                         value = result["value"]
                         tag = result["tag"]
@@ -253,7 +290,7 @@ async def run_stream(request: SimpleRequest):
 
                         if output_key not in accumulated_output:
                             accumulated_output[output_key] = []
-                        
+
                         accumulated_output[output_key].append({
                             "value": value,
                             "tag": tag,
@@ -261,7 +298,7 @@ async def run_stream(request: SimpleRequest):
                         })
 
                         results_received += 1
-                        
+
                         response_chunk = {
                             "output_key": output_key,
                             "value": value,
@@ -271,22 +308,30 @@ async def run_stream(request: SimpleRequest):
                             "all_complete": results_received >= total_results_expected
                         }
                         yield f"data: {json.dumps(response_chunk)}\n\n"
-                
+
                 except Exception as e:
                     logger.error(f"Error streaming from provider {provider}: {e}", exc_info=True)
                     if provider != "litellm":
                         raise
 
-            final_response = {
-                "output": accumulated_output,
-                "all_complete": True
-            }
-            yield f"data: {json.dumps(final_response)}\n\n"
+            if not cancellation_event.is_set():
+                final_response = {
+                    "output": accumulated_output,
+                    "all_complete": True
+                }
+                yield f"data: {json.dumps(final_response)}\n\n"
 
+        except asyncio.CancelledError:
+            logger.info(f"Request {current_request_id} was cancelled")
         except Exception as e:
-            logger.error(f"Error in stream: {str(e)}", exc_info=True)
+            logger.error(f"Error in stream for request {current_request_id}: {str(e)}", exc_info=True)
             error_response = {"error": str(e)}
             yield f"data: {json.dumps(error_response)}\n\n"
+        finally:
+            async with requests_lock:
+                if current_request_id in active_requests:
+                    del active_requests[current_request_id]
+                    logger.info(f"Cleaned up request {current_request_id}")
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
