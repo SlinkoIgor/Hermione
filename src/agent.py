@@ -221,10 +221,6 @@ class AgentBuilder:
 
     def _get_routes(self, state: AgentState) -> list[str]:
         routes = []
-        if "math_formula_calculation" in state.tasks:
-            routes.append("math_formula_calculation_node")
-            return routes
-
         for task in state.tasks:
             if task == "text_task":
                 if len(state.messages[0].content.split()) > 100:
@@ -234,6 +230,8 @@ class AgentBuilder:
                 routes.append("text_reformulation_node")
                 routes.append("text_enrichment_node")
             elif task == "emoji_generation":
+                routes.append(f"{task}_node")
+            elif task == "math_formula_calculation":
                 routes.append(f"{task}_node")
         return routes
 
