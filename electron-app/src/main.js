@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, clipboard, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, clipboard, screen } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
@@ -6,7 +6,6 @@ const fetch = require('node-fetch');
 const log = require('electron-log');
 const { TAB_ICONS } = require('./constants');
 
-let tray = null;
 let mainWindow = null;
 let pythonProcess = null;
 let isQuitting = false;
@@ -35,39 +34,6 @@ const pythonPath = IS_DEV
 const apiScriptPath = IS_DEV
   ? path.join(__dirname, '..', '..', 'src', 'api.py')
   : path.join(process.resourcesPath, 'src', 'api.py');
-
-// Create the tray icon
-function createTray() {
-  tray = new Tray(path.join(__dirname, 'assets', 'icon.png'));
-  tray.setToolTip('CheatKey');
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-        }
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Debug Info',
-      click: () => {
-        showDebugInfo();
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        quitApp();
-      }
-    }
-  ]);
-
-  tray.setContextMenu(contextMenu);
-}
 
 // Create the main window
 function createWindow() {
@@ -1065,7 +1031,7 @@ async function quitApp() {
       });
     }
 
-    // Clean up windows and tray
+    // Clean up windows
     if (mainWindow) {
       log.info('Destroying main window');
       mainWindow.destroy();
@@ -1076,12 +1042,6 @@ async function quitApp() {
       log.info('Destroying popup window');
       popupWindow.destroy();
       popupWindow = null;
-    }
-
-    if (tray) {
-      log.info('Destroying tray icon');
-      tray.destroy();
-      tray = null;
     }
 
     app.quit();
@@ -1095,7 +1055,6 @@ async function quitApp() {
 app.on('ready', async () => {
   try {
     await startPythonServer();
-    createTray();
 
     if (IS_DEV) {
       createWindow();
@@ -1180,7 +1139,6 @@ function showDebugInfo() {
       isVisible: popupWindow.isVisible(),
       isMinimized: popupWindow.isMinimized()
     } : null,
-    tray: tray ? 'exists' : null,
     isQuitting: isQuitting
   };
 
@@ -1266,7 +1224,6 @@ ipcMain.on('get-process-info', (event) => {
       isVisible: popupWindow.isVisible(),
       isMinimized: popupWindow.isMinimized()
     } : null,
-    tray: tray ? 'exists' : null,
     isQuitting: isQuitting,
     env: {
       NODE_ENV: process.env.NODE_ENV,
