@@ -19,6 +19,7 @@ let lastPopupBounds = {
 };
 let lastActiveTab = 0;
 let hasShownPopupForCurrentRequest = false;
+let userClosedPopupForCurrentRequest = false;
 
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
@@ -85,6 +86,7 @@ function createPopupWindow(responseText, isLoading = false) {
               height: 100%;
               background: transparent;
               overflow: hidden;
+              font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
             }
             .container {
               position: relative;
@@ -122,11 +124,54 @@ function createPopupWindow(responseText, isLoading = false) {
               cursor: move;
               display: flex;
               align-items: center;
-              justify-content: flex-end;
-              padding-right: 10px;
-              -webkit-app-region: drag;
+              justify-content: space-between;
+              padding: 0 10px;
               z-index: 1000;
               border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+            }
+            .drag-area {
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              height: 30px;
+              -webkit-app-region: drag;
+              z-index: 1001;
+            }
+            .tabs-container {
+              display: flex;
+              align-items: center;
+              overflow-x: auto;
+              flex-grow: 1;
+              margin-right: 10px;
+              scrollbar-width: none;
+              -ms-overflow-style: none;
+              position: relative;
+              z-index: 1002;
+              pointer-events: auto;
+            }
+            .tabs-container::-webkit-scrollbar {
+              display: none;
+            }
+            .tab {
+              padding: 4px 10px;
+              margin-right: 4px;
+              background-color: rgba(0, 0, 0, 0.05);
+              border-radius: 4px;
+              font-size: 11px;
+              cursor: pointer;
+              white-space: nowrap;
+              transition: all 0.2s ease;
+              -webkit-app-region: no-drag;
+              font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+              filter: grayscale(100%) contrast(150%);
+            }
+            .tab:hover {
+              background-color: rgba(0, 0, 0, 0.1);
+            }
+            .tab.active {
+              background-color: rgba(0, 0, 0, 0.15);
+              font-weight: bold;
             }
             .close-btn {
               width: 20px;
@@ -139,7 +184,6 @@ function createPopupWindow(responseText, isLoading = false) {
               cursor: pointer;
               font-size: 14px;
               color: #666;
-              margin-left: 5px;
               -webkit-app-region: no-drag;
               transition: all 0.2s ease;
             }
@@ -147,13 +191,27 @@ function createPopupWindow(responseText, isLoading = false) {
               background-color: rgba(0, 0, 0, 0.1);
               color: #333;
             }
+            .tab-content {
+              display: none;
+              padding: 8px;
+              background: transparent;
+              font-size: 12px;
+              line-height: 1.4;
+              white-space: pre-wrap;
+              color: #1a1a1a;
+            }
+            .tab-content.active {
+              display: block;
+            }
             .loading-dots {
               display: flex;
               align-items: center;
               justify-content: center;
               height: 100%;
-              font-size: 24px;
+              font-size: 32px;
               color: #666;
+              font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+              letter-spacing: 2px;
             }
             .dot {
               opacity: 0;
@@ -165,21 +223,164 @@ function createPopupWindow(responseText, isLoading = false) {
               0%, 100% { opacity: 0; }
               50% { opacity: 1; }
             }
+            ::-webkit-scrollbar {
+              width: 8px;
+            }
+            ::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            ::-webkit-scrollbar-thumb {
+              background: rgba(0, 0, 0, 0.1);
+              border-radius: 4px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+              background: rgba(0, 0, 0, 0.15);
+              border-radius: 4px;
+            }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="titlebar" id="titlebar">
+              <div class="drag-area"></div>
+              <div class="tabs-container" id="tabsContainer"></div>
               <div class="close-btn" id="closeBtn">×</div>
             </div>
             <div class="content-wrapper" id="content">
-              <div class="loading-dots">
+              <div class="loading-dots" id="loadingDots">
                 <span class="dot">.</span>
                 <span class="dot">.</span>
                 <span class="dot">.</span>
               </div>
             </div>
           </div>
+          <script>
+            const { ipcRenderer } = require('electron');
+            const tabIcons = ${JSON.stringify(TAB_ICONS)};
+            const getTabIcon = (key) => tabIcons[key] || '';
+
+            document.addEventListener('DOMContentLoaded', function() {
+              const tabsContainer = document.getElementById('tabsContainer');
+              const tabContentsContainer = document.getElementById('content');
+
+              if (tabsContainer) {
+                tabsContainer.addEventListener('click', function(e) {
+                  const tab = e.target.closest('.tab');
+                  if (!tab) return;
+
+                  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                  tab.classList.add('active');
+
+                  const tabIndex = tab.getAttribute('data-tab');
+                  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                  const content = document.getElementById('tab-' + tabIndex);
+                  if (content) {
+                    content.classList.add('active');
+                  }
+                });
+              }
+
+              document.getElementById('closeBtn').addEventListener('click', function() {
+                ipcRenderer.send('close-popup');
+              });
+
+              document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                  ipcRenderer.send('close-popup');
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                  const activeTab = document.querySelector('.tab.active');
+                  if (!activeTab) return;
+
+                  const activeTabIndex = parseInt(activeTab.getAttribute('data-tab'));
+                  const tabs = document.querySelectorAll('.tab');
+                  const tabsCount = tabs.length;
+
+                  let newTabIndex;
+                  if (e.key === 'ArrowLeft') {
+                    newTabIndex = (activeTabIndex - 1 + tabsCount) % tabsCount;
+                  } else {
+                    newTabIndex = (activeTabIndex + 1) % tabsCount;
+                  }
+
+                  const targetTab = document.querySelector('.tab[data-tab="' + newTabIndex + '"]');
+                  if (targetTab) targetTab.click();
+                }
+              });
+
+              document.addEventListener('copy', function(e) {
+                const selection = window.getSelection();
+                const selectedText = selection.toString();
+                if (selectedText) {
+                  e.preventDefault();
+                  e.clipboardData.setData('text/plain', selectedText);
+                }
+              });
+
+              ipcRenderer.on('add-tab', (event, output) => {
+                if (!tabsContainer || !tabContentsContainer) return;
+
+                const loadingDiv = document.getElementById('loadingDots');
+                if (loadingDiv) {
+                  loadingDiv.remove();
+                }
+
+                for (const [key, value] of Object.entries(output)) {
+                  const processTab = (itemValue, itemTag, uniqueId) => {
+                    const existingTab = document.querySelector('.tab[data-unique-id="' + uniqueId + '"]');
+                    if (existingTab) {
+                      const tabIndex = existingTab.getAttribute('data-tab');
+                      const contentDiv = document.getElementById('tab-' + tabIndex);
+                      if (contentDiv) {
+                        contentDiv.innerHTML = itemValue;
+                      }
+                      return;
+                    }
+
+                    const tabCount = document.querySelectorAll('.tab').length;
+                    const tabName = (getTabIcon(key) + ' ' + (itemTag || '')).trim();
+                    if (!tabName) return;
+
+                    const newTab = document.createElement('div');
+                    newTab.className = 'tab';
+                    newTab.setAttribute('data-tab', tabCount);
+                    newTab.setAttribute('data-unique-id', uniqueId);
+                    newTab.textContent = tabName;
+
+                    const newContent = document.createElement('div');
+                    newContent.className = 'tab-content';
+                    newContent.id = 'tab-' + tabCount;
+                    newContent.innerHTML = itemValue;
+
+                    tabsContainer.appendChild(newTab);
+                    tabContentsContainer.appendChild(newContent);
+
+                    const isFirst = tabCount === 0;
+                    const isExistent = key === 'existent';
+
+                    if (isFirst || isExistent) {
+                      setTimeout(() => {
+                        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                        newTab.classList.add('active');
+                        newContent.classList.add('active');
+                      }, 10);
+                    }
+                  };
+
+                  if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
+                    value.forEach((item, index) => {
+                      const uniqueId = key + '-array-' + index;
+                      processTab(item.value, item.tag, uniqueId);
+                    });
+                  } else if (value) {
+                    const uniqueId = key + '-string';
+                    processTab(value, '', uniqueId);
+                  }
+                }
+              });
+            });
+          </script>
         </body>
         </html>
       `;
@@ -499,19 +700,12 @@ function createPopupWindow(responseText, isLoading = false) {
 
   // Determine if we need to create a new window or reload the existing one
   let shouldCreateOrReload = false;
-  
+
   if (!popupWindow || popupWindow.isDestroyed()) {
     shouldCreateOrReload = true;
     isPopupShowingContent = false;
   } else {
-    // If we have content but the window is currently showing the loading screen (isPopupShowingContent is false),
-    // we MUST reload to switch to the content layout.
-    if (hasContent && !isPopupShowingContent) {
-      shouldCreateOrReload = true;
-    }
-    
-    // If we are starting a new request (loading, no content) and the window is currently showing content,
-    // we MUST reload to show the loading screen (and clear old content).
+    // Only reload if we are starting a new request (loading, no content) and the window is currently showing content.
     if (!hasContent && isLoading && isPopupShowingContent) {
       shouldCreateOrReload = true;
     }
@@ -569,10 +763,10 @@ function createPopupWindow(responseText, isLoading = false) {
             const tabIcons = ${JSON.stringify(TAB_ICONS)};
             const getTabIcon = (key) => tabIcons[key] || '';
             
-            // Remove loading if present
-            const loadingDiv = document.querySelector('.loading-dots');
+            // Remove loading dots if present
+            const loadingDiv = document.getElementById('loadingDots');
             if (loadingDiv) {
-              loadingDiv.closest('.content-wrapper').innerHTML = '';
+              loadingDiv.remove();
             }
             
             for (const [key, value] of Object.entries(output)) {
@@ -651,7 +845,7 @@ function createPopupWindow(responseText, isLoading = false) {
     const htmlContent = generateHtmlContent(responseText, isLoading);
     popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
 
-    if (!hasShownPopupForCurrentRequest) {
+    if (!hasShownPopupForCurrentRequest && !userClosedPopupForCurrentRequest) {
       popupWindow.show();
       hasShownPopupForCurrentRequest = true;
     }
@@ -660,15 +854,12 @@ function createPopupWindow(responseText, isLoading = false) {
     isPopupShowingContent = hasContent;
     
   } else {
-    // Window exists and we are already showing content (or compatible state).
-    // Send update via IPC.
-    popupWindow.webContents.send('add-tab', responseText.output);
-    
-    // Update state just in case
+    // Window exists - send update via IPC (works for both loading screen and content).
     if (hasContent) {
-       isPopupShowingContent = true;
+      popupWindow.webContents.send('add-tab', responseText.output);
+      isPopupShowingContent = true;
     }
-    
+
     if (!isLoading) {
       popupWindow.webContents.send('loading-complete');
     }
@@ -775,9 +966,10 @@ function registerShortcut() {
           isPopupShowingContent = false;
         }
 
-        // Reset lastActiveTab and popup shown flag for new request
+        // Reset flags for new request
         lastActiveTab = 0;
         hasShownPopupForCurrentRequest = false;
+        userClosedPopupForCurrentRequest = false;
 
         // Show fresh loading popup immediately
         updatePopup({}, true);
@@ -1069,7 +1261,9 @@ app.on('ready', async () => {
     registerShortcut();
 
     app.on('activate', () => {
-      if (IS_DEV && BrowserWindow.getAllWindows().length === 0) {
+      if (popupWindow && !popupWindow.isDestroyed()) {
+        popupWindow.show();
+      } else if (IS_DEV && BrowserWindow.getAllWindows().length === 0) {
         createWindow();
       }
     });
@@ -1244,7 +1438,7 @@ ipcMain.on('get-process-info', (event) => {
 // Add this near the other IPC handlers
 ipcMain.on('close-popup', () => {
   if (popupWindow && !popupWindow.isDestroyed()) {
-    popupWindow.destroy();
-    popupWindow = null;
+    popupWindow.hide();
+    userClosedPopupForCurrentRequest = true;
   }
 });
