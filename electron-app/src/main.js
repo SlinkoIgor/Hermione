@@ -18,6 +18,7 @@ let lastPopupBounds = {
   y: undefined
 };
 let lastActiveTab = 0;
+let hasShownPopupForCurrentRequest = false;
 
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
@@ -649,8 +650,12 @@ function createPopupWindow(responseText, isLoading = false) {
     // Load the content
     const htmlContent = generateHtmlContent(responseText, isLoading);
     popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
-    popupWindow.show();
-    
+
+    if (!hasShownPopupForCurrentRequest) {
+      popupWindow.show();
+      hasShownPopupForCurrentRequest = true;
+    }
+
     // Update state
     isPopupShowingContent = hasContent;
     
@@ -770,8 +775,9 @@ function registerShortcut() {
           isPopupShowingContent = false;
         }
 
-        // Reset lastActiveTab for new request
+        // Reset lastActiveTab and popup shown flag for new request
         lastActiveTab = 0;
+        hasShownPopupForCurrentRequest = false;
 
         // Show fresh loading popup immediately
         updatePopup({}, true);
