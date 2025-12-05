@@ -62,6 +62,11 @@ function createWindow() {
 
 // Create a popup window near the cursor
 function createPopupWindow(responseText, isLoading = false) {
+  // If user closed the popup for this request, don't create/show it again
+  if (userClosedPopupForCurrentRequest) {
+    return null;
+  }
+
   // Get the cursor position
   const cursorPosition = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPosition);
@@ -837,7 +842,9 @@ function createPopupWindow(responseText, isLoading = false) {
             }
           });
           true; // Return serializable value
-        `);
+        `).catch(err => {
+          console.error('Error executing script in popup:', err);
+        });
       });
     }
 
@@ -845,7 +852,7 @@ function createPopupWindow(responseText, isLoading = false) {
     const htmlContent = generateHtmlContent(responseText, isLoading);
     popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
 
-    if (!hasShownPopupForCurrentRequest && !userClosedPopupForCurrentRequest) {
+    if (!hasShownPopupForCurrentRequest) {
       popupWindow.show();
       hasShownPopupForCurrentRequest = true;
     }
@@ -1261,9 +1268,7 @@ app.on('ready', async () => {
     registerShortcut();
 
     app.on('activate', () => {
-      if (popupWindow && !popupWindow.isDestroyed()) {
-        popupWindow.show();
-      } else if (IS_DEV && BrowserWindow.getAllWindows().length === 0) {
+      if (IS_DEV && BrowserWindow.getAllWindows().length === 0) {
         createWindow();
       }
     });
@@ -1438,7 +1443,8 @@ ipcMain.on('get-process-info', (event) => {
 // Add this near the other IPC handlers
 ipcMain.on('close-popup', () => {
   if (popupWindow && !popupWindow.isDestroyed()) {
-    popupWindow.hide();
+    popupWindow.destroy();
+    popupWindow = null;
     userClosedPopupForCurrentRequest = true;
   }
 });
