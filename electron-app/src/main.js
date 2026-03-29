@@ -4,7 +4,7 @@ const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const fetch = require('node-fetch');
 const log = require('electron-log');
-const { TAB_ICONS } = require('./constants');
+const { TAB_ICONS, TAB_ORDER } = require('./constants');
 
 let mainWindow = null;
 let pythonProcess = null;
@@ -262,7 +262,9 @@ function createPopupWindow(responseText, isLoading = false) {
           <script>
             const { ipcRenderer } = require('electron');
             const tabIcons = ${JSON.stringify(TAB_ICONS)};
+            const tabOrder = ${JSON.stringify(TAB_ORDER)};
             const getTabIcon = (key) => tabIcons[key] || '';
+            const getTabOrder = (key) => tabOrder[key] !== undefined ? tabOrder[key] : 99;
 
             document.addEventListener('DOMContentLoaded', function() {
               const tabsContainer = document.getElementById('tabsContainer');
@@ -294,22 +296,14 @@ function createPopupWindow(responseText, isLoading = false) {
                 if (e.key === 'Escape') {
                   ipcRenderer.send('close-popup');
                 } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                  const activeTab = document.querySelector('.tab.active');
-                  if (!activeTab) return;
-
-                  const activeTabIndex = parseInt(activeTab.getAttribute('data-tab'));
-                  const tabs = document.querySelectorAll('.tab');
-                  const tabsCount = tabs.length;
-
-                  let newTabIndex;
-                  if (e.key === 'ArrowLeft') {
-                    newTabIndex = (activeTabIndex - 1 + tabsCount) % tabsCount;
-                  } else {
-                    newTabIndex = (activeTabIndex + 1) % tabsCount;
-                  }
-
-                  const targetTab = document.querySelector('.tab[data-tab="' + newTabIndex + '"]');
-                  if (targetTab) targetTab.click();
+                  const tabs = Array.from(document.querySelectorAll('.tab'));
+                  if (!tabs.length) return;
+                  const activeIdx = tabs.findIndex(t => t.classList.contains('active'));
+                  if (activeIdx === -1) return;
+                  const next = e.key === 'ArrowLeft'
+                    ? (activeIdx - 1 + tabs.length) % tabs.length
+                    : (activeIdx + 1) % tabs.length;
+                  tabs[next].click();
                 }
               });
 
@@ -350,10 +344,13 @@ function createPopupWindow(responseText, isLoading = false) {
                     const tabName = (getTabIcon(key) + ' ' + (itemTag || '')).trim();
                     if (!tabName) return;
 
+                    const myOrder = getTabOrder(key);
+
                     const newTab = document.createElement('div');
                     newTab.className = 'tab';
                     newTab.setAttribute('data-tab', tabCount);
                     newTab.setAttribute('data-unique-id', uniqueId);
+                    newTab.setAttribute('data-order', myOrder);
                     newTab.textContent = tabName;
 
                     const newContent = document.createElement('div');
@@ -361,7 +358,16 @@ function createPopupWindow(responseText, isLoading = false) {
                     newContent.id = 'tab-' + tabCount;
                     newContent.innerHTML = elapsedHtml + itemValue;
 
-                    tabsContainer.appendChild(newTab);
+                    let inserted = false;
+                    const existingTabs = tabsContainer.querySelectorAll('.tab');
+                    for (const t of existingTabs) {
+                      if (parseInt(t.getAttribute('data-order')) > myOrder) {
+                        tabsContainer.insertBefore(newTab, t);
+                        inserted = true;
+                        break;
+                      }
+                    }
+                    if (!inserted) tabsContainer.appendChild(newTab);
                     tabContentsContainer.appendChild(newContent);
 
                     const isFirst = tabCount === 0;
@@ -384,7 +390,7 @@ function createPopupWindow(responseText, isLoading = false) {
                     });
                   } else if (value) {
                     const uniqueId = key + '-string';
-                    processTab(value, '', uniqueId);
+                    processTab(value, '', uniqueId, null);
                   }
                 }
               });
@@ -671,23 +677,14 @@ function createPopupWindow(responseText, isLoading = false) {
               if (e.key === 'Escape') {
                 window.close();
               } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                const activeTab = document.querySelector('.tab.active');
-                if (!activeTab) return;
-                
-                const activeTabIndex = parseInt(activeTab.getAttribute('data-tab'));
-                const tabs = document.querySelectorAll('.tab');
-                const tabsCount = tabs.length;
-                
-                let newTabIndex;
-                if (e.key === 'ArrowLeft') {
-                  newTabIndex = (activeTabIndex - 1 + tabsCount) % tabsCount;
-                } else {
-                  newTabIndex = (activeTabIndex + 1) % tabsCount;
-                }
-                
-                // Find the tab with this data-tab attribute and click it
-                const targetTab = document.querySelector('.tab[data-tab="' + newTabIndex + '"]');
-                if (targetTab) targetTab.click();
+                const tabs = Array.from(document.querySelectorAll('.tab'));
+                if (!tabs.length) return;
+                const activeIdx = tabs.findIndex(t => t.classList.contains('active'));
+                if (activeIdx === -1) return;
+                const next = e.key === 'ArrowLeft'
+                  ? (activeIdx - 1 + tabs.length) % tabs.length
+                  : (activeIdx + 1) % tabs.length;
+                tabs[next].click();
               }
             });
 
@@ -770,16 +767,16 @@ function createPopupWindow(responseText, isLoading = false) {
             if (!tabsContainer || !tabContentsContainer) return;
 
             const tabIcons = ${JSON.stringify(TAB_ICONS)};
+            const tabOrder = ${JSON.stringify(TAB_ORDER)};
             const getTabIcon = (key) => tabIcons[key] || '';
-            
-            // Remove loading dots if present
+            const getTabOrder = (key) => tabOrder[key] !== undefined ? tabOrder[key] : 99;
+
             const loadingDiv = document.getElementById('loadingDots');
             if (loadingDiv) {
               loadingDiv.remove();
             }
-            
+
             for (const [key, value] of Object.entries(output)) {
-              // Helper to process adding a tab
               const processTab = (itemValue, itemTag, uniqueId, itemElapsed) => {
                 const elapsedHtml = (itemElapsed != null)
                   ? '<span style="display:block;font-size:10px;color:rgba(0,0,0,0.35);margin-bottom:4px">' + (itemElapsed / 1000).toFixed(1) + 's</span>'
@@ -799,18 +796,30 @@ function createPopupWindow(responseText, isLoading = false) {
                 const tabName = (getTabIcon(key) + ' ' + (itemTag || '')).trim();
                 if (!tabName) return;
 
+                const myOrder = getTabOrder(key);
+
                 const newTab = document.createElement('div');
                 newTab.className = 'tab';
                 newTab.setAttribute('data-tab', tabCount);
                 newTab.setAttribute('data-unique-id', uniqueId);
+                newTab.setAttribute('data-order', myOrder);
                 newTab.textContent = tabName;
 
                 const newContent = document.createElement('div');
                 newContent.className = 'tab-content';
                 newContent.id = 'tab-' + tabCount;
                 newContent.innerHTML = elapsedHtml + itemValue;
-                
-                tabsContainer.appendChild(newTab);
+
+                let inserted = false;
+                const existingTabs = tabsContainer.querySelectorAll('.tab');
+                for (const t of existingTabs) {
+                  if (parseInt(t.getAttribute('data-order')) > myOrder) {
+                    tabsContainer.insertBefore(newTab, t);
+                    inserted = true;
+                    break;
+                  }
+                }
+                if (!inserted) tabsContainer.appendChild(newTab);
                 tabContentsContainer.appendChild(newContent);
                 
                 // Auto-show the new tab if it's the first one or "existent"

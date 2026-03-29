@@ -1,4 +1,4 @@
-const { TAB_ICONS } = require('./constants');
+const { TAB_ICONS, TAB_ORDER } = require('./constants');
 
 function generateHtmlContent(response, loading, lastActiveTab = 0) {
   // Only show loading screen if loading is true AND we have no content
@@ -129,7 +129,9 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
   // First, find if 'existent' exists and add it first
   const outputEntries = Object.entries(output);
   const existentEntry = outputEntries.find(([key]) => key === 'existent');
-  const otherEntries = outputEntries.filter(([key]) => key !== 'existent');
+  const otherEntries = outputEntries
+    .filter(([key]) => key !== 'existent')
+    .sort(([a], [b]) => (TAB_ORDER[a] ?? 99) - (TAB_ORDER[b] ?? 99));
 
   let startTabIndex = 0;
   const processedEntries = existentEntry ? [existentEntry, ...otherEntries] : otherEntries;
@@ -385,23 +387,14 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
             if (e.key === 'Escape') {
               window.close();
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-              const activeTab = document.querySelector('.tab.active');
-              if (!activeTab) return;
-              
-              const activeTabIndex = parseInt(activeTab.getAttribute('data-tab'));
-              const tabs = document.querySelectorAll('.tab');
-              const tabsCount = tabs.length;
-              
-              let newTabIndex;
-              if (e.key === 'ArrowLeft') {
-                newTabIndex = (activeTabIndex - 1 + tabsCount) % tabsCount;
-              } else {
-                newTabIndex = (activeTabIndex + 1) % tabsCount;
-              }
-              
-              // Find the tab with this data-tab attribute and click it
-              const targetTab = document.querySelector('.tab[data-tab="' + newTabIndex + '"]');
-              if (targetTab) targetTab.click();
+              const tabs = Array.from(document.querySelectorAll('.tab'));
+              if (!tabs.length) return;
+              const activeIdx = tabs.findIndex(t => t.classList.contains('active'));
+              if (activeIdx === -1) return;
+              const next = e.key === 'ArrowLeft'
+                ? (activeIdx - 1 + tabs.length) % tabs.length
+                : (activeIdx + 1) % tabs.length;
+              tabs[next].click();
             }
           });
 
