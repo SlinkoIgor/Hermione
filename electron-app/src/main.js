@@ -26,7 +26,7 @@ const IS_DEV = process.env.NODE_ENV === 'development';
 const DEFAULT_PORT = 8123;
 const API_PORT = process.env.API_PORT || DEFAULT_PORT;
 const API_HOST = '127.0.0.1';
-const PROVIDER_MODE = process.env.PROVIDER_MODE || 'litellm_only';
+const PROVIDER_MODE = process.env.PROVIDER_MODE || 'openai_only';
 
 // Path to the Python executable in the virtual environment
 const pythonPath = IS_DEV
@@ -331,13 +331,17 @@ function createPopupWindow(responseText, isLoading = false) {
                 }
 
                 for (const [key, value] of Object.entries(output)) {
-                  const processTab = (itemValue, itemTag, uniqueId) => {
+                  const processTab = (itemValue, itemTag, uniqueId, itemElapsed) => {
+                    const elapsedHtml = (itemElapsed != null)
+                      ? '<span style="display:block;font-size:10px;color:rgba(0,0,0,0.35);margin-bottom:4px">' + (itemElapsed / 1000).toFixed(1) + 's</span>'
+                      : '';
+
                     const existingTab = document.querySelector('.tab[data-unique-id="' + uniqueId + '"]');
                     if (existingTab) {
                       const tabIndex = existingTab.getAttribute('data-tab');
                       const contentDiv = document.getElementById('tab-' + tabIndex);
                       if (contentDiv) {
-                        contentDiv.innerHTML = itemValue;
+                        contentDiv.innerHTML = elapsedHtml + itemValue;
                       }
                       return;
                     }
@@ -355,7 +359,7 @@ function createPopupWindow(responseText, isLoading = false) {
                     const newContent = document.createElement('div');
                     newContent.className = 'tab-content';
                     newContent.id = 'tab-' + tabCount;
-                    newContent.innerHTML = itemValue;
+                    newContent.innerHTML = elapsedHtml + itemValue;
 
                     tabsContainer.appendChild(newTab);
                     tabContentsContainer.appendChild(newContent);
@@ -376,7 +380,7 @@ function createPopupWindow(responseText, isLoading = false) {
                   if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
                     value.forEach((item, index) => {
                       const uniqueId = key + '-array-' + index;
-                      processTab(item.value, item.tag, uniqueId);
+                      processTab(item.value, item.tag, uniqueId, item.elapsed);
                     });
                   } else if (value) {
                     const uniqueId = key + '-string';
@@ -776,33 +780,35 @@ function createPopupWindow(responseText, isLoading = false) {
             
             for (const [key, value] of Object.entries(output)) {
               // Helper to process adding a tab
-              const processTab = (itemValue, itemTag, uniqueId) => {
-                // Check if tab already exists
+              const processTab = (itemValue, itemTag, uniqueId, itemElapsed) => {
+                const elapsedHtml = (itemElapsed != null)
+                  ? '<span style="display:block;font-size:10px;color:rgba(0,0,0,0.35);margin-bottom:4px">' + (itemElapsed / 1000).toFixed(1) + 's</span>'
+                  : '';
+
                 const existingTab = document.querySelector(\`.tab[data-unique-id="\${uniqueId}"]\`);
                 if (existingTab) {
                   const tabIndex = existingTab.getAttribute('data-tab');
                   const contentDiv = document.getElementById('tab-' + tabIndex);
                   if (contentDiv) {
-                    contentDiv.innerHTML = itemValue;
+                    contentDiv.innerHTML = elapsedHtml + itemValue;
                   }
                   return;
                 }
-                
+
                 const tabCount = document.querySelectorAll('.tab').length;
-                // Use getTabIcon here instead of key directly
                 const tabName = (getTabIcon(key) + ' ' + (itemTag || '')).trim();
                 if (!tabName) return;
-                
+
                 const newTab = document.createElement('div');
                 newTab.className = 'tab';
                 newTab.setAttribute('data-tab', tabCount);
                 newTab.setAttribute('data-unique-id', uniqueId);
                 newTab.textContent = tabName;
-                
+
                 const newContent = document.createElement('div');
                 newContent.className = 'tab-content';
                 newContent.id = 'tab-' + tabCount;
-                newContent.innerHTML = itemValue;
+                newContent.innerHTML = elapsedHtml + itemValue;
                 
                 tabsContainer.appendChild(newTab);
                 tabContentsContainer.appendChild(newContent);
@@ -825,11 +831,11 @@ function createPopupWindow(responseText, isLoading = false) {
               if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
                 value.forEach((item, index) => {
                   const uniqueId = \`\${key}-array-\${index}\`;
-                  processTab(item.value, item.tag, uniqueId);
+                  processTab(item.value, item.tag, uniqueId, item.elapsed);
                 });
               } else if (value) {
                 const uniqueId = \`\${key}-string\`;
-                processTab(value, '', uniqueId);
+                processTab(value, '', uniqueId, null);
               }
             }
           });
@@ -981,6 +987,8 @@ function registerShortcut() {
         // Show fresh loading popup immediately
         updatePopup({}, true);
 
+        const requestStartTime = Date.now();
+
         fetch(`http://${API_HOST}:${API_PORT}/runs/stream`, {
           method: 'POST',
           headers: {
@@ -1022,13 +1030,15 @@ function registerShortcut() {
                       if (!accumulatedOutput[data.output_key]) {
                         accumulatedOutput[data.output_key] = [];
                       }
-                      
+
+                      const elapsedMs = Date.now() - requestStartTime;
                       const newItem = {
                         value: data.value,
                         tag: data.tag,
-                        model: data.model
+                        model: data.model,
+                        elapsed: elapsedMs
                       };
-                      
+
                       accumulatedOutput[data.output_key].push(newItem);
 
                       // Update popup with accumulated output
@@ -1045,10 +1055,14 @@ function registerShortcut() {
                         resolve();
                       }
                     } else if (data.output) {
-                      Object.assign(accumulatedOutput, data.output);
-                      
+                      for (const [k, v] of Object.entries(data.output)) {
+                        if (!accumulatedOutput[k]) {
+                          accumulatedOutput[k] = v;
+                        }
+                      }
+
                       updatePopup(accumulatedOutput, !data.all_complete);
-                      
+
                       if (data.all_complete) {
                         allComplete = true;
                         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1077,17 +1091,23 @@ function registerShortcut() {
                       if (!accumulatedOutput[data.output_key]) {
                         accumulatedOutput[data.output_key] = [];
                       }
+                      const elapsedMs = Date.now() - requestStartTime;
                       const newItem = {
                         value: data.value,
                         tag: data.tag,
-                        model: data.model
+                        model: data.model,
+                        elapsed: elapsedMs
                       };
                       accumulatedOutput[data.output_key].push(newItem);
-                      
+
                       updatePopup(accumulatedOutput, false);
                     } else if (data.output) {
-                      Object.assign(accumulatedOutput, data.output);
-                      
+                      for (const [k, v] of Object.entries(data.output)) {
+                        if (!accumulatedOutput[k]) {
+                          accumulatedOutput[k] = v;
+                        }
+                      }
+
                       updatePopup(accumulatedOutput, false);
                     }
                   } catch (e) {

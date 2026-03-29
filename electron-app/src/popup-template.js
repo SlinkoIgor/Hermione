@@ -134,6 +134,17 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
   let startTabIndex = 0;
   const processedEntries = existentEntry ? [existentEntry, ...otherEntries] : otherEntries;
 
+  function formatElapsed(ms) {
+    if (ms === undefined || ms === null) return '';
+    return (ms / 1000).toFixed(1) + 's';
+  }
+
+  function elapsedPrefix(ms) {
+    const s = formatElapsed(ms);
+    if (!s) return '';
+    return `<span class="elapsed-prefix">${s}</span>`;
+  }
+
   processedEntries.forEach(([key, value]) => {
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0].value !== undefined) {
       value.forEach((item, itemIndex) => {
@@ -143,7 +154,7 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
         const uniqueId = `${key}-array-${itemIndex}`;
         const isActive = startTabIndex === lastActiveTab;
         tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${startTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
-        tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${item.value}</div>`);
+        tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${startTabIndex}">${elapsedPrefix(item.elapsed)}${item.value}</div>`);
         startTabIndex++;
       });
     } else {
@@ -267,6 +278,12 @@ function generateHtmlContent(response, loading, lastActiveTab = 0) {
         .tab.active {
           background-color: rgba(0, 0, 0, 0.15);
           font-weight: bold;
+        }
+        .elapsed-prefix {
+          display: block;
+          font-size: 10px;
+          color: rgba(0, 0, 0, 0.35);
+          margin-bottom: 4px;
         }
         .close-btn {
           width: 20px;

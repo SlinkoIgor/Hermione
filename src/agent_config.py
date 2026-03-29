@@ -3,13 +3,13 @@ from typing import Literal, Optional
 
 MODEL_CONFIGS = {
     "openai": {
-        "base_model": "gpt-5-nano",
-        "fast_model": "gpt-5-nano",
+        "base_model": "gpt-5.4-nano",
+        "fast_model": "gpt-5.4-nano",
         "thinking_budget": None,
     },
     "litellm": {
-        "base_model": "gemini-2.5-flash",
-        "fast_model": "gemini-2.5-flash",
+        "base_model": "gemini-3-flash-preview",
+        "fast_model": "gemini-3-flash-preview",
         "thinking_budget": None,
     }
 }
