@@ -113,13 +113,10 @@ async def text_reformulation(
     Examples:
         text_reformulation("Hello, how are you?") returns "Hi, how's it going?"
     """
-    system_prompt = dedent("""You are a professional writer and editor.
-    Rewrite the given text using different words and sentence structures while maintaining the same meaning.
-    Keep the same language as the original text.
-    Make the reformulation natural and fluent.
-    Preserve the original tone and style (formal/informal, professional/casual).
-    Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
-    Only return the reformulated text, no explanations or other text.""")
+    system_prompt = dedent("""Rewrite the text to sound smoother and slightly more polite, like a message to someone you work with but don't know well.
+    Keep the same meaning and language. Aim for clear, natural phrasing — not overly formal or fancy.
+    Preserve the original formatting (line breaks, paragraphs, etc.).
+    Only return the rewritten text, nothing else.""")
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 

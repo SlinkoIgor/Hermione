@@ -326,16 +326,12 @@ function createPopupWindow(responseText, isLoading = false) {
 
                 for (const [key, value] of Object.entries(output)) {
                   const processTab = (itemValue, itemTag, uniqueId, itemElapsed) => {
-                    const elapsedHtml = (itemElapsed != null)
-                      ? '<span style="display:block;font-size:10px;color:rgba(0,0,0,0.35);margin-bottom:4px">' + (itemElapsed / 1000).toFixed(1) + 's</span>'
-                      : '';
-
                     const existingTab = document.querySelector('.tab[data-unique-id="' + uniqueId + '"]');
                     if (existingTab) {
                       const tabIndex = existingTab.getAttribute('data-tab');
                       const contentDiv = document.getElementById('tab-' + tabIndex);
                       if (contentDiv) {
-                        contentDiv.innerHTML = elapsedHtml + itemValue;
+                        contentDiv.innerHTML = itemValue;
                       }
                       return;
                     }
@@ -356,7 +352,7 @@ function createPopupWindow(responseText, isLoading = false) {
                     const newContent = document.createElement('div');
                     newContent.className = 'tab-content';
                     newContent.id = 'tab-' + tabCount;
-                    newContent.innerHTML = elapsedHtml + itemValue;
+                    newContent.innerHTML = itemValue;
 
                     let inserted = false;
                     const existingTabs = tabsContainer.querySelectorAll('.tab');
@@ -778,16 +774,12 @@ function createPopupWindow(responseText, isLoading = false) {
 
             for (const [key, value] of Object.entries(output)) {
               const processTab = (itemValue, itemTag, uniqueId, itemElapsed) => {
-                const elapsedHtml = (itemElapsed != null)
-                  ? '<span style="display:block;font-size:10px;color:rgba(0,0,0,0.35);margin-bottom:4px">' + (itemElapsed / 1000).toFixed(1) + 's</span>'
-                  : '';
-
                 const existingTab = document.querySelector(\`.tab[data-unique-id="\${uniqueId}"]\`);
                 if (existingTab) {
                   const tabIndex = existingTab.getAttribute('data-tab');
                   const contentDiv = document.getElementById('tab-' + tabIndex);
                   if (contentDiv) {
-                    contentDiv.innerHTML = elapsedHtml + itemValue;
+                    contentDiv.innerHTML = itemValue;
                   }
                   return;
                 }
@@ -808,7 +800,7 @@ function createPopupWindow(responseText, isLoading = false) {
                 const newContent = document.createElement('div');
                 newContent.className = 'tab-content';
                 newContent.id = 'tab-' + tabCount;
-                newContent.innerHTML = elapsedHtml + itemValue;
+                newContent.innerHTML = itemValue;
 
                 let inserted = false;
                 const existingTabs = tabsContainer.querySelectorAll('.tab');
