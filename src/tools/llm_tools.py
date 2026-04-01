@@ -108,6 +108,7 @@ async def fix_text(
     If you added punctuation, make only this punctuation in <b>tags</b>.
     Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
     Make sure that you put the <b>tags</b> only around the words/punctuation that you've changed.
+    IMPORTANT: If you made NO changes at all, return the original text exactly as provided — without any <b> tags or any other modifications.
     Only return the fixed text, no explanations or other text.
     {FORMATTING_RULES}""")
 
