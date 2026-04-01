@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from src.tools.function_calculator import calculate_formula
-from src.tools.llm_tools import translate_text, fix_text, text_summarization, text_reformulation, text_enrichment, generate_emoji
+from src.tools.llm_tools import translate_text, fluent_translate_text, fix_text, text_summarization, text_reformulation, text_enrichment, generate_emoji
 from src.llm_providers import get_openai_llm, get_litellm_llm
 from textwrap import dedent
 from typing import Dict, Any, List, Literal, Union
@@ -80,6 +80,7 @@ class AgentState:
     out_math_result: str = ""
     out_math_script: str = ""
     out_translation: str = ""
+    out_fluent_translation: str = ""
     out_fixed: str = ""
     out_tldr: str = ""
     out_reformulation: str = ""
@@ -109,6 +110,7 @@ class AgentState:
             "out_math_result": self.out_math_result,
             "out_math_script": self.out_math_script,
             "out_translation": self.out_translation,
+            "out_fluent_translation": self.out_fluent_translation,
             "out_fixed": self.out_fixed,
             "out_tldr": self.out_tldr,
             "out_reformulation": self.out_reformulation,
@@ -212,6 +214,10 @@ class AgentBuilder:
         query_language = parts[-2].strip()
         is_native_language = parts[-1].strip() == "true"
 
+        word_count = len(user_content.split())
+        if word_count <= 3 and "emoji_generation" not in task_names:
+            task_names = ["emoji_generation"] + task_names
+
         print("is_native_language", is_native_language, "query_language", query_language, "native_language", self.native_language)
 
         return {"tasks": task_names,
@@ -221,11 +227,15 @@ class AgentBuilder:
 
     def _get_routes(self, state: AgentState) -> list[str]:
         routes = []
+        word_count = len(state.messages[0].content.split())
+        is_word_or_phrase = word_count <= 2
         for task in state.tasks:
             if task == "text_task":
-                if len(state.messages[0].content.split()) > 100:
+                if word_count > 100:
                     routes.append("text_summarization_node")
-                routes.append("text_translation_node")
+                if not is_word_or_phrase:
+                    routes.append("text_translation_node")
+                routes.append("text_fluent_translation_node")
                 routes.append("text_fix_node")
                 routes.append("text_reformulation_node")
                 routes.append("text_enrichment_node")
@@ -246,6 +256,18 @@ class AgentBuilder:
             llm=llm
         )
         return {"out_translation": translated_text}
+
+    async def _text_fluent_translation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+        model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
+        logger.info(f"[MODEL_INFO] text_fluent_translation_node: {model_info}")
+        translated_text = await fluent_translate_text(
+            text=state.messages[0].content,
+            native_language=self.native_language,
+            target_language=self.target_language,
+            is_native_language=state.is_native_language,
+            llm=llm
+        )
+        return {"out_fluent_translation": translated_text}
 
     async def _text_fix_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
@@ -352,6 +374,9 @@ class AgentBuilder:
                 if route == "text_translation_node":
                     task = asyncio.create_task(self._text_translation_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_translation"}
+                elif route == "text_fluent_translation_node":
+                    task = asyncio.create_task(self._text_fluent_translation_node(state, llm, model_name))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_fluent_translation"}
                 elif route == "text_fix_node":
                     task = asyncio.create_task(self._text_fix_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_fixed"}
@@ -440,6 +465,9 @@ class AgentBuilder:
                 if route == "text_translation_node":
                     tasks.append(self._text_translation_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_translation"})
+                elif route == "text_fluent_translation_node":
+                    tasks.append(self._text_fluent_translation_node(state, llm, model_name))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_fluent_translation"})
                 elif route == "text_fix_node":
                     tasks.append(self._text_fix_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_fixed"})

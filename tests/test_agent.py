@@ -22,6 +22,15 @@ def agent(provider):
         **config
     ).build()
 
+@pytest.fixture
+def openai_agent():
+    config = get_agent_config(provider="openai", thinking_budget=1000)
+    return AgentBuilder(
+        native_currency="EUR",
+        provider="openai",
+        **config
+    ).build()
+
 @pytest.mark.asyncio
 async def test_math_formula_calculation(agent):
     messages = await agent.ainvoke({"messages": [HumanMessage("log10(1000 * 66)")]})
@@ -132,3 +141,55 @@ async def test_percentage_calculation(agent):
 #     result = messages.get("out_bash_command", "")
 #     assert "ls" in result.lower(), f"Expected 'ls' command, but got: {result}"
 #     assert any(flag in result for flag in ["-l", "-a", "-la", "-l -a", "-al", "--all", "--list", "-1"]), f"Expected command to contain one of the flags [-l, -a, -la, -l -a, -al, --all, --list, -1], but got command: {result}"
+
+@pytest.mark.asyncio
+async def test_fluent_translation_present(openai_agent):
+    messages = await openai_agent.ainvoke({
+        "messages": [HumanMessage(
+            "The issue is that LangChain's bind_tools expects a function with a valid __name__ attribute."
+        )]
+    })
+    assert "out_fluent_translation" in messages
+    fluent = messages["out_fluent_translation"]
+    if isinstance(fluent, list):
+        fluent_text = " ".join([
+            item.get("value", "") if isinstance(item, dict) else str(item)
+            for item in fluent
+        ])
+    else:
+        fluent_text = fluent
+    assert fluent_text.strip(), "Fluent translation should not be empty"
+    assert any(c in fluent_text for c in "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"), (
+        f"Expected Russian text in fluent translation, got: {fluent_text}"
+    )
+
+@pytest.mark.asyncio
+async def test_fluent_translation_and_translation_both_present(openai_agent):
+    messages = await openai_agent.ainvoke({
+        "messages": [HumanMessage("Hello, how are you doing today?")]
+    })
+    assert "out_translation" in messages
+    assert "out_fluent_translation" in messages
+
+@pytest.mark.asyncio
+async def test_emoji_generation_for_short_input(openai_agent):
+    messages = await openai_agent.ainvoke({
+        "messages": [HumanMessage("coffee")]
+    })
+    assert "out_emoji" in messages
+    emoji = messages["out_emoji"]
+    if isinstance(emoji, list):
+        emoji_text = " ".join([
+            item.get("value", "") if isinstance(item, dict) else str(item)
+            for item in emoji
+        ])
+    else:
+        emoji_text = emoji
+    assert emoji_text.strip(), "Emoji generation result should not be empty"
+
+@pytest.mark.asyncio
+async def test_emoji_generation_for_two_words(openai_agent):
+    messages = await openai_agent.ainvoke({
+        "messages": [HumanMessage("happy birthday")]
+    })
+    assert "out_emoji" in messages
