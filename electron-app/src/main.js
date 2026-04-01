@@ -208,6 +208,13 @@ function createPopupWindow(responseText, isLoading = false) {
             .tab-content.active {
               display: block;
             }
+            .error-text {
+              color: #c0392b;
+              font-size: 12px;
+              line-height: 1.5;
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
             .loading-dots {
               display: flex;
               align-items: center;
@@ -352,7 +359,9 @@ function createPopupWindow(responseText, isLoading = false) {
                     const newContent = document.createElement('div');
                     newContent.className = 'tab-content';
                     newContent.id = 'tab-' + tabCount;
-                    newContent.innerHTML = itemValue;
+                    newContent.innerHTML = key === 'error'
+                      ? '<span class="error-text">' + itemValue + '</span>'
+                      : itemValue;
 
                     let inserted = false;
                     const existingTabs = tabsContainer.querySelectorAll('.tab');
@@ -461,7 +470,10 @@ function createPopupWindow(responseText, isLoading = false) {
         const tabName = getTabIcon(key);
         if (tabName) {
           tabs.push(`<div class="tab ${isActive ? 'active' : ''}" data-tab="${globalTabIndex}" data-unique-id="${uniqueId}">${tabName}</div>`);
-          tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${value}</div>`);
+          const tabValue = key === 'error'
+            ? `<span class="error-text">${String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`
+            : value;
+          tabContents.push(`<div class="tab-content ${isActive ? 'active' : ''}" id="tab-${globalTabIndex}">${tabValue}</div>`);
           globalTabIndex++;
         }
       }
@@ -607,6 +619,13 @@ function createPopupWindow(responseText, isLoading = false) {
           }
           .tab-content.active {
             display: block;
+          }
+          .error-text {
+            color: #c0392b;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
           }
           ::-webkit-scrollbar {
             width: 8px;
@@ -800,7 +819,9 @@ function createPopupWindow(responseText, isLoading = false) {
                 const newContent = document.createElement('div');
                 newContent.className = 'tab-content';
                 newContent.id = 'tab-' + tabCount;
-                newContent.innerHTML = itemValue;
+                newContent.innerHTML = key === 'error'
+                  ? '<span class="error-text">' + itemValue + '</span>'
+                  : itemValue;
 
                 let inserted = false;
                 const existingTabs = tabsContainer.querySelectorAll('.tab');

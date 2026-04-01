@@ -7,10 +7,12 @@ const TAB_ICONS = {
   'enrichment': '🦄',
   'emoji': '🙏',
   'math_result': '🔢',
-  'math_script': '🐍'
+  'math_script': '🐍',
+  'error': '⚠️'
 };
 
 const TAB_ORDER = {
+  'error': -1,
   'existent': 0,
   'translation': 1,
   'fixed': 2,
