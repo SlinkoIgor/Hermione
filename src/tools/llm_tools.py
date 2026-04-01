@@ -2,6 +2,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from textwrap import dedent
 
+FORMATTING_RULES = "Use a hyphen (-) instead of an em dash (—) in all generated text."
+
 
 async def translate_text(
     text: str,
@@ -31,6 +33,7 @@ async def translate_text(
     Maintain the original meaning, tone, and style as much as possible.
     Only return the translated text (or word), no explanations or other text.
     Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
+    {FORMATTING_RULES}
 
     If it's a word (or two words) not a text, then return 1 main translation and 4 possible translations with the following format:
     main_translation
@@ -62,7 +65,8 @@ async def fix_text(
     If you added punctuation, make only this punctuation in <b>tags</b>.
     Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
     Make sure that you put the <b>tags</b> only around the words/punctuation that you've changed.
-    Only return the fixed text, no explanations or other text.""")
+    Only return the fixed text, no explanations or other text.
+    {FORMATTING_RULES}""")
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
@@ -90,7 +94,8 @@ async def text_summarization(
     system_prompt = dedent(f"""You are a professional summarizer.
     Create a concise TL;DR summary of the given text in {native_language}.
     The summary should be no more than 2-3 (!!!!TWO or THREE!!!!) sentences and capture the main points.
-    Only return the summary, no explanations or other text.""")
+    Only return the summary, no explanations or other text.
+    {FORMATTING_RULES}""")
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
@@ -113,10 +118,11 @@ async def text_reformulation(
     Examples:
         text_reformulation("Hello, how are you?") returns "Hi, how's it going?"
     """
-    system_prompt = dedent("""Rewrite the text to sound smoother and slightly more polite, like a message to someone you work with but don't know well.
-    Keep the same meaning and language. Aim for clear, natural phrasing — not overly formal or fancy.
+    system_prompt = dedent(f"""Rewrite the text to sound smoother and slightly more polite, like a message to someone you work with but don't know well.
+    Keep the same meaning and language. Aim for clear, natural phrasing - not overly formal or fancy.
     Preserve the original formatting (line breaks, paragraphs, etc.).
-    Only return the rewritten text, nothing else.""")
+    Only return the rewritten text, nothing else.
+    {FORMATTING_RULES}""")
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
@@ -136,7 +142,7 @@ async def text_enrichment(
     Returns:
         The enriched text with emoji tags.
     """
-    system_prompt = dedent("""You are an expert content creator who loves using Slack emojis to make text more engaging and visual.
+    system_prompt = dedent(f"""You are an expert content creator who loves using Slack emojis to make text more engaging and visual.
     Your task is to enrich the given text by adding relevant Slack-style emoji tags (shortcodes like :smile:, :rocket:, :tv:, etc.).
 
     Guidelines:
@@ -148,6 +154,7 @@ async def text_enrichment(
     6. Do not overdo it; make it look professional yet lively.
     7. Lean towards using rare emoji tags
     8. When using emoji tags that could be absent in the user packs, put an alternative common emoji tag next to it.
+    9. {FORMATTING_RULES}
 
     Example style:
     "Last :fri: we discussed on how to improve speed of LLM generation.
