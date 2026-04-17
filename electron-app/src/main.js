@@ -261,17 +261,12 @@ function createPopupWindow(responseText, isLoading = false) {
               align-items: center;
               justify-content: center;
               cursor: pointer;
-              color: #aaa;
-              transition: all 0.15s ease;
+              color: #ccc;
               -webkit-app-region: no-drag;
               z-index: 100;
             }
-            .copy-btn:hover {
-              background-color: rgba(0, 0, 0, 0.07);
-              color: #555;
-            }
             .copy-btn.copied {
-              color: #27ae60;
+              color: #666;
             }
           </style>
         </head>
@@ -290,7 +285,7 @@ function createPopupWindow(responseText, isLoading = false) {
               </div>
             </div>
             <div class="copy-btn" id="copyBtn" title="Copy">
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" overflow="visible" xmlns="http://www.w3.org/2000/svg">
                 <rect x="3.5" y="0.5" width="8.5" height="9.5" rx="1.2" stroke="currentColor" stroke-width="1.1"/>
                 <rect x="0.5" y="3.5" width="8.5" height="9.5" rx="1.2" stroke="currentColor" stroke-width="1.1" fill="#f5f5f5"/>
               </svg>
@@ -329,18 +324,26 @@ function createPopupWindow(responseText, isLoading = false) {
                 ipcRenderer.send('close-popup');
               });
 
-              document.getElementById('copyBtn').addEventListener('click', function() {
+              const doCopy = () => {
                 const active = document.querySelector('.tab-content.active');
                 if (!active) return;
                 const { clipboard } = require('electron');
                 clipboard.writeText(active.innerText);
-                this.classList.add('copied');
-                setTimeout(() => this.classList.remove('copied'), 1500);
-              });
+                const btn = document.getElementById('copyBtn');
+                if (btn) {
+                  btn.classList.add('copied');
+                  setTimeout(() => btn.classList.remove('copied'), 1500);
+                }
+              };
+
+              document.getElementById('copyBtn').addEventListener('click', doCopy);
 
               document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') {
                   ipcRenderer.send('close-popup');
+                } else if (e.key === ' ') {
+                  e.preventDefault();
+                  doCopy();
                 } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                   const tabs = Array.from(document.querySelectorAll('.tab'));
                   if (!tabs.length) return;
@@ -692,17 +695,12 @@ function createPopupWindow(responseText, isLoading = false) {
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            color: #aaa;
-            transition: all 0.15s ease;
+            color: #ccc;
             -webkit-app-region: no-drag;
             z-index: 100;
           }
-          .copy-btn:hover {
-            background-color: rgba(0, 0, 0, 0.07);
-            color: #555;
-          }
           .copy-btn.copied {
-            color: #27ae60;
+            color: #666;
           }
         </style>
       </head>
@@ -719,7 +717,7 @@ function createPopupWindow(responseText, isLoading = false) {
             ${tabContents.join('\n')}
           </div>
           <div class="copy-btn" id="copyBtn" title="Copy">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" overflow="visible" xmlns="http://www.w3.org/2000/svg">
               <rect x="3.5" y="0.5" width="8.5" height="9.5" rx="1.2" stroke="currentColor" stroke-width="1.1"/>
               <rect x="0.5" y="3.5" width="8.5" height="9.5" rx="1.2" stroke="currentColor" stroke-width="1.1" fill="#f5f5f5"/>
             </svg>
@@ -756,19 +754,27 @@ function createPopupWindow(responseText, isLoading = false) {
               window.close();
             });
 
-            document.getElementById('copyBtn').addEventListener('click', function() {
+            const doCopy = () => {
               const active = document.querySelector('.tab-content.active');
               if (!active) return;
               const { clipboard } = require('electron');
               clipboard.writeText(active.innerText);
-              this.classList.add('copied');
-              setTimeout(() => this.classList.remove('copied'), 1500);
-            });
+              const btn = document.getElementById('copyBtn');
+              if (btn) {
+                btn.classList.add('copied');
+                setTimeout(() => btn.classList.remove('copied'), 1500);
+              }
+            };
+
+            document.getElementById('copyBtn').addEventListener('click', doCopy);
 
             // Keyboard navigation
             document.addEventListener('keydown', function(e) {
               if (e.key === 'Escape') {
                 window.close();
+              } else if (e.key === ' ') {
+                e.preventDefault();
+                doCopy();
               } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                 const tabs = Array.from(document.querySelectorAll('.tab'));
                 if (!tabs.length) return;
