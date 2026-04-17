@@ -1,4 +1,5 @@
-from html import unescape
+import re
+from difflib import SequenceMatcher
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from textwrap import dedent
@@ -6,12 +7,113 @@ from textwrap import dedent
 FORMATTING_RULES = "Use a hyphen (-) instead of an em dash (—) in all generated text."
 
 
+def message_content_to_str(content) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        chunks = []
+        for part in content:
+            if isinstance(part, str):
+                chunks.append(part)
+            elif isinstance(part, dict):
+                text = part.get("text")
+                if text is not None:
+                    chunks.append(str(text))
+        return "".join(chunks)
+    return str(content)
+
+
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r'\S+|\s+', text)
+
+
+def _apply_diff_highlights(original: str, corrected: str) -> str:
+    """Highlight only the tokens that actually changed between original and corrected."""
+    orig_tokens = _tokenize(original)
+    corr_tokens = _tokenize(corrected)
+
+    matcher = SequenceMatcher(None, orig_tokens, corr_tokens, autojunk=False)
+    result = []
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            result.extend(corr_tokens[j1:j2])
+        elif tag in ('replace', 'insert'):
+            for token in corr_tokens[j1:j2]:
+                if token.strip():
+                    result.append(f'<b>{token}</b>')
+                else:
+                    result.append(token)
+
+    return ''.join(result)
+
+
+_LANG_VARIANTS = (
+    ("english", ("english", "английский")),
+    ("russian", ("russian", "русский")),
+    ("spanish", ("spanish", "испанский")),
+    ("german", ("german", "немецкий")),
+    ("french", ("french", "французский")),
+    ("italian", ("italian", "итальянский")),
+    ("portuguese", ("portuguese", "португальский")),
+    ("ukrainian", ("ukrainian", "украинский")),
+    ("chinese", ("chinese", "китайский", "mandarin")),
+    ("japanese", ("japanese", "японский")),
+    ("korean", ("korean", "корейский")),
+)
+
+
+def _label_to_language_bucket(label: str) -> str | None:
+    if not label or not str(label).strip():
+        return None
+    low = str(label).strip().lower()
+    for bucket, variants in _LANG_VARIANTS:
+        if bucket in low:
+            return bucket
+        for v in variants:
+            if v in low:
+                return bucket
+    return None
+
+
+def _detected_to_language_bucket(detected: str) -> str | None:
+    if not detected or not str(detected).strip():
+        return None
+    low = str(detected).strip().lower()
+    for bucket, variants in _LANG_VARIANTS:
+        tokens = sorted((bucket,) + variants, key=len, reverse=True)
+        for token in tokens:
+            if re.search(r"\b" + re.escape(token) + r"\b", low):
+                return bucket
+    return None
+
+
+def resolve_translation_target(
+    native_language: str,
+    target_language: str,
+    query_language: str,
+    is_native_language: bool,
+) -> str:
+    q = _detected_to_language_bucket(query_language)
+    n = _label_to_language_bucket(native_language)
+    t = _label_to_language_bucket(target_language)
+    if q and n and t and n != t:
+        if q == n:
+            return target_language
+        if q == t:
+            return native_language
+    return target_language if is_native_language else native_language
+
+
 async def translate_text(
     text: str,
     native_language: str,
     target_language: str,
     is_native_language: bool,
-    llm: ChatOpenAI = None
+    query_language: str = "",
+    llm: ChatOpenAI = None,
 ) -> str:
     """Translates text to the specified target language.
 
@@ -20,6 +122,7 @@ async def translate_text(
         native_language: The user's native language (e.g., "English", "Spanish", "Russian").
         target_language: The target language for translation (e.g., "English", "Spanish", "Russian").
         is_native_language: Whether the text is in the native language (True or False).
+        query_language: Detected language name from routing (e.g. "English"); used to fix target when is_native_language is wrong.
         llm: The LLM to use for translation. If None, creates a default ChatOpenAI instance.
     Returns:
         The translated text in the target language.
@@ -28,9 +131,12 @@ async def translate_text(
         translate_text("Hello world", "English", "Spanish", True) returns "Hola mundo"
         translate_text("Bonjour le monde", "English", "German", False) returns "Hello world"
     """
-    target = target_language if is_native_language else native_language
+    target = resolve_translation_target(
+        native_language, target_language, query_language, is_native_language
+    )
     system_prompt = dedent(f"""You are a professional translator.
     Translate the text inside <text_to_translate> tags to {target}.
+    The full output must be written in {target}. If the input is in another language, translate completely. Do not paraphrase in the original language.
     Maintain the original meaning, tone, and style as much as possible.
     Only return the translated text (or word), no explanations or other text.
     Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
@@ -44,7 +150,7 @@ async def translate_text(
     messages = [SystemMessage(system_prompt), HumanMessage(f"<text_to_translate>{text}</text_to_translate>")]
 
     response = await llm.ainvoke(messages)
-    return response.content
+    return message_content_to_str(response.content)
 
 
 async def fluent_translate_text(
@@ -52,7 +158,8 @@ async def fluent_translate_text(
     native_language: str,
     target_language: str,
     is_native_language: bool,
-    llm: ChatOpenAI = None
+    query_language: str = "",
+    llm: ChatOpenAI = None,
 ) -> str:
     """Translates text to the specified target language with fluent, natural-sounding output.
 
@@ -61,6 +168,7 @@ async def fluent_translate_text(
         native_language: The user's native language (e.g., "English", "Spanish", "Russian").
         target_language: The target language for translation (e.g., "English", "Spanish", "Russian").
         is_native_language: Whether the text is in the native language (True or False).
+        query_language: Detected language name from routing; used to fix target when is_native_language is wrong.
         llm: The LLM to use for translation. If None, creates a default ChatOpenAI instance.
     Returns:
         The translated text in the target language, sounding fluent and natural.
@@ -69,9 +177,12 @@ async def fluent_translate_text(
         fluent_translate_text("Hello world", "English", "Spanish", True) returns "Hola mundo"
         fluent_translate_text("Bonjour le monde", "English", "German", False) returns "Hello world"
     """
-    target = target_language if is_native_language else native_language
+    target = resolve_translation_target(
+        native_language, target_language, query_language, is_native_language
+    )
     system_prompt = dedent(f"""You are a professional translator.
     Translate the text inside <text_to_translate> tags to {target}.
+    The full output must be written in {target}. If the input is in another language, translate completely. Do not paraphrase in the original language.
     Make the translation sound natural and fluent in {target}, as if it were originally written by a native speaker of that language.
     Only return the translated text (or word), no explanations or other text.
     Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
@@ -85,7 +196,7 @@ async def fluent_translate_text(
     messages = [SystemMessage(system_prompt), HumanMessage(f"<text_to_translate>{text}</text_to_translate>")]
 
     response = await llm.ainvoke(messages)
-    return response.content
+    return message_content_to_str(response.content)
 
 
 async def fix_text(
@@ -103,19 +214,20 @@ async def fix_text(
     system_prompt = dedent(f"""You are a professional grammar editor.
     Fix any grammar, spelling, or punctuation errors in the text.
     Maintain the original meaning, tone, and style as much as possible.
-    For every word where you make a change (spelling, words order, words deletion, words addition) put it in <b>tags</b>.
-    If you've changed the capital letter, make only this letter in <b>tags</b>.
-    If you added punctuation, make only this punctuation in <b>tags</b>.
     Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
-    Make sure that you put the <b>tags</b> only around the words/punctuation that you've changed.
-    IMPORTANT: If you made NO changes at all, return the original text exactly as provided — without any <b> tags or any other modifications.
+    If the text has no errors, return it exactly as provided.
     Only return the fixed text, no explanations or other text.
     {FORMATTING_RULES}""")
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
     response = await llm.ainvoke(messages)
-    return unescape(response.content)
+    corrected = message_content_to_str(response.content)
+
+    if corrected.strip() == text.strip():
+        return text
+
+    return _apply_diff_highlights(text, corrected)
 
 
 async def text_summarization(
@@ -144,7 +256,7 @@ async def text_summarization(
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
     response = await llm.ainvoke(messages)
-    return response.content
+    return message_content_to_str(response.content)
 
 
 async def text_reformulation(
@@ -171,7 +283,7 @@ async def text_reformulation(
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
     response = await llm.ainvoke(messages)
-    return response.content
+    return message_content_to_str(response.content)
 
 
 async def text_enrichment(
@@ -215,7 +327,7 @@ async def text_enrichment(
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
     response = await llm.ainvoke(messages)
-    return response.content
+    return message_content_to_str(response.content)
 
 
 async def generate_emoji(
@@ -242,7 +354,7 @@ async def generate_emoji(
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
     response = await llm.ainvoke(messages)
-    return response.content
+    return message_content_to_str(response.content)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,72 @@
 import pytest
-from src.tools.llm_tools import translate_text, fluent_translate_text, generate_emoji
+from src.tools.llm_tools import (
+    translate_text,
+    fluent_translate_text,
+    generate_emoji,
+    resolve_translation_target,
+)
 from src.agent_config import get_agent_config
 from src.llm_providers import get_openai_llm
+
+
+def test_resolve_translation_target_english_query_overrides_wrong_native_flag():
+    assert (
+        resolve_translation_target(
+            native_language="Русский",
+            target_language="English",
+            query_language="English",
+            is_native_language=True,
+        )
+        == "Русский"
+    )
+
+
+def test_resolve_translation_target_russian_query_to_target_language():
+    assert (
+        resolve_translation_target(
+            native_language="Русский",
+            target_language="English",
+            query_language="Russian",
+            is_native_language=True,
+        )
+        == "English"
+    )
+
+
+def test_resolve_translation_target_anglijskij_alias():
+    assert (
+        resolve_translation_target(
+            native_language="Русский",
+            target_language="English",
+            query_language="английский",
+            is_native_language=True,
+        )
+        == "Русский"
+    )
+
+
+def test_resolve_translation_target_fallback_when_query_unknown():
+    assert (
+        resolve_translation_target(
+            native_language="Русский",
+            target_language="English",
+            query_language="Esperanto",
+            is_native_language=True,
+        )
+        == "English"
+    )
+
+
+def test_resolve_translation_target_empty_query_uses_flag():
+    assert (
+        resolve_translation_target(
+            native_language="Русский",
+            target_language="English",
+            query_language="",
+            is_native_language=False,
+        )
+        == "Русский"
+    )
 
 
 @pytest.fixture

@@ -262,15 +262,6 @@ async def run_stream(request: SimpleRequest):
 
             providers_to_run = await get_providers_to_run(request.provider_mode)
             accumulated_output = {}
-            total_results_expected = 0
-            results_received = 0
-
-            for provider in providers_to_run:
-                config = get_agent_config(provider=provider)
-                if isinstance(config.get("base_model"), list):
-                    total_results_expected += len(config["base_model"])
-                else:
-                    total_results_expected += 1
 
             for provider in providers_to_run:
                 if cancellation_event.is_set():
@@ -297,15 +288,13 @@ async def run_stream(request: SimpleRequest):
                             "model": model
                         })
 
-                        results_received += 1
-
                         response_chunk = {
                             "output_key": output_key,
                             "value": value,
                             "tag": tag,
                             "model": model,
                             "provider": provider,
-                            "all_complete": results_received >= total_results_expected
+                            "all_complete": False,
                         }
                         yield f"data: {json.dumps(response_chunk)}\n\n"
 
