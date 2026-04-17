@@ -1,0 +1,46 @@
+---
+description: Build and deploy CheatKey Electron app to /Applications. Follow this workflow when the user asks to build, deploy, ship, or install the app, or says "билди", "положи в applications", "задеплой".
+alwaysApply: false
+---
+
+# Deploy CheatKey
+
+Project root: `/Users/Igor.Slinko/projects/hermione`
+Electron app: `electron-app/`
+
+## Workflow
+
+### 1. Bump version in `electron-app/package.json`
+
+Increment the patch version (e.g. `1.0.26` → `1.0.27`).
+
+### 2. Build
+
+```bash
+cd /Users/Igor.Slinko/projects/hermione/electron-app && npm run build
+```
+
+Output: `dist/mac-arm64/CheatKey.app`
+
+### 3. Kill running CheatKey (if any)
+
+```bash
+pgrep -x "CheatKey" && pkill -x "CheatKey" && sleep 1 || true
+```
+
+### 4. Copy to /Applications
+
+Always `rm -rf` first — `cp -r` merges files and leaves the old `app.asar` intact.
+
+```bash
+rm -rf /Applications/CheatKey.app && cp -r /Users/Igor.Slinko/projects/hermione/electron-app/dist/mac-arm64/CheatKey.app /Applications/CheatKey.app
+```
+
+### 5. Ask user to confirm commit
+
+Ask: **"Можно закоммитить изменения?"**
+
+If yes — commit `electron-app/package.json` (and any other changed files):
+```
+Bump version to 1.0.X and <short description of changes>
+```
