@@ -1,7 +1,16 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from src.tools.function_calculator import calculate_formula
-from src.tools.llm_tools import translate_text, fluent_translate_text, fix_text, text_summarization, text_reformulation, text_enrichment, generate_emoji
+from src.tools.llm_tools import (
+    translate_text,
+    fluent_translate_text,
+    fix_text,
+    text_summarization,
+    text_reformulation,
+    text_enrichment,
+    generate_emoji,
+    message_content_to_str,
+)
 from src.llm_providers import get_openai_llm, get_litellm_llm
 from textwrap import dedent
 from typing import Dict, Any, List, Literal, Union
@@ -54,6 +63,10 @@ router_prompt = dedent("""
     - If the input contains text primarily in {native_language}, set is_native_language to "True"
     - If the input is in any other language, set is_native_language to "False"
     - Be precise: if the user writes in {native_language}, you MUST return "True" for is_native_language
+    - query_language must name the actual language of the input text (e.g. English, Russian), not the user's preference
+    - If the input is clearly in English but {native_language} is not English, is_native_language MUST be "False"
+    - If the input is clearly in Russian but {native_language} is Russian, is_native_language MUST be "True"
+    - Never set is_native_language to "True" just because the topic relates to {native_language}; use the script and wording of the input only
 
     Return ONLY the task names, query_language, and is_native_language as a string with comma delimiters, nothing else.
 
@@ -206,13 +219,28 @@ class AgentBuilder:
         user_message = state.messages[0]
         user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
         task_response = await router_llm.ainvoke([task_message, HumanMessage(content=user_content)])
-        parts = task_response.content.lower().split(",")
+        raw_router = message_content_to_str(task_response.content)
+        parts = None
+        for line in reversed([ln.strip() for ln in raw_router.splitlines() if ln.strip()]):
+            pl = [p.strip() for p in line.lower().split(",") if p.strip()]
+            if len(pl) >= 3 and pl[-1] in ("true", "false"):
+                parts = pl
+                break
+        if parts is None:
+            pl = [p.strip() for p in raw_router.lower().split(",") if p.strip()]
+            parts = pl if len(pl) >= 3 else ["text_task", "english", "false"]
         if "text_task" not in parts:
             parts = ["text_task"] + parts
         task_names = [task.strip() for task in parts[:-2]]
         print(parts[-1])
         query_language = parts[-2].strip()
         is_native_language = parts[-1].strip() == "true"
+
+        if is_native_language and self.native_language.lower() in ("русский", "russian"):
+            has_cyrillic = any("\u0400" <= ch <= "\u04ff" for ch in user_content)
+            if not has_cyrillic:
+                is_native_language = False
+                logger.info("Overriding is_native_language to False: no Cyrillic chars in input")
 
         word_count = len(user_content.split())
         if word_count <= 3 and "emoji_generation" not in task_names:
@@ -228,13 +256,11 @@ class AgentBuilder:
     def _get_routes(self, state: AgentState) -> list[str]:
         routes = []
         word_count = len(state.messages[0].content.split())
-        is_word_or_phrase = word_count <= 2
         for task in state.tasks:
             if task == "text_task":
                 if word_count > 100:
                     routes.append("text_summarization_node")
-                if not is_word_or_phrase:
-                    routes.append("text_translation_node")
+                routes.append("text_translation_node")
                 routes.append("text_fluent_translation_node")
                 routes.append("text_fix_node")
                 routes.append("text_reformulation_node")
@@ -253,7 +279,8 @@ class AgentBuilder:
             native_language=self.native_language,
             target_language=self.target_language,
             is_native_language=state.is_native_language,
-            llm=llm
+            query_language=state.query_language,
+            llm=llm,
         )
         return {"out_translation": translated_text}
 
@@ -265,7 +292,8 @@ class AgentBuilder:
             native_language=self.native_language,
             target_language=self.target_language,
             is_native_language=state.is_native_language,
-            llm=llm
+            query_language=state.query_language,
+            llm=llm,
         )
         return {"out_fluent_translation": translated_text}
 
@@ -319,10 +347,10 @@ class AgentBuilder:
         math_formula_calculation_llm = self._get_single_llm(use_fast=True)
         logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=True)}")
         response = await math_formula_calculation_llm.ainvoke([SystemMessage(math_formula_calculation_prompt), state.messages[0]])
-        calculation_result = calculate_formula(response.content)
+        calculation_result = calculate_formula(message_content_to_str(response.content))
         return {
             "out_math_result": str(calculation_result),
-            "out_math_script": response.content
+            "out_math_script": message_content_to_str(response.content)
         }
 
     def _get_tag_for_model(self, model_name: str, num_models: int = 1) -> str:
