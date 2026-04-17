@@ -343,7 +343,7 @@ async def generate_emoji(
         A string with several emojis that correspond to the input.
     """
     system_prompt = dedent("""You are an emoji expert.
-    Generate 5-7 relevant emojis that correspond to the given word or words.
+    Generate exactly 20 relevant emojis that correspond to the given word or words.
     Only return the emojis themselves, separated by spaces, no explanations or other text.
 
     Examples:
