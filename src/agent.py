@@ -8,6 +8,7 @@ from src.tools.llm_tools import (
     text_summarization,
     text_reformulation,
     text_enrichment,
+    polish_text,
     generate_emoji,
     message_content_to_str,
 )
@@ -97,6 +98,7 @@ class AgentState:
     out_fixed: str = ""
     out_tldr: str = ""
     out_reformulation: str = ""
+    out_polished: str = ""
     out_enrichment: str = ""
     out_emoji: str = ""
 
@@ -127,6 +129,7 @@ class AgentState:
             "out_fixed": self.out_fixed,
             "out_tldr": self.out_tldr,
             "out_reformulation": self.out_reformulation,
+            "out_polished": self.out_polished,
             "out_enrichment": self.out_enrichment,
             "out_emoji": self.out_emoji,
         }
@@ -264,6 +267,7 @@ class AgentBuilder:
                 routes.append("text_fluent_translation_node")
                 routes.append("text_fix_node")
                 routes.append("text_reformulation_node")
+                routes.append("text_polish_node")
                 routes.append("text_enrichment_node")
             elif task == "emoji_generation":
                 routes.append(f"{task}_node")
@@ -324,6 +328,15 @@ class AgentBuilder:
             llm=llm
         )
         return {"out_reformulation": reformulated_text}
+
+    async def _text_polish_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+        model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
+        logger.info(f"[MODEL_INFO] text_polish_node: {model_info}")
+        polished = await polish_text(
+            text=state.messages[0].content,
+            llm=llm
+        )
+        return {"out_polished": polished}
 
     async def _text_enrichment_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
@@ -414,6 +427,9 @@ class AgentBuilder:
                 elif route == "text_reformulation_node":
                     task = asyncio.create_task(self._text_reformulation_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_reformulation"}
+                elif route == "text_polish_node":
+                    task = asyncio.create_task(self._text_polish_node(state, llm, model_name))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_polished"}
                 elif route == "text_enrichment_node":
                     task = asyncio.create_task(self._text_enrichment_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_enrichment"}
@@ -505,6 +521,9 @@ class AgentBuilder:
                 elif route == "text_reformulation_node":
                     tasks.append(self._text_reformulation_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_reformulation"})
+                elif route == "text_polish_node":
+                    tasks.append(self._text_polish_node(state, llm, model_name))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_polished"})
                 elif route == "text_enrichment_node":
                     tasks.append(self._text_enrichment_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_enrichment"})

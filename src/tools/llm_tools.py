@@ -330,6 +330,42 @@ async def text_enrichment(
     return message_content_to_str(response.content)
 
 
+async def polish_text(
+    text: str,
+    llm: ChatOpenAI = None
+) -> str:
+    """Polishes the text to sound natural and native, fixing all errors.
+
+    Parameters:
+        text: The text to be polished.
+        llm: The LLM to use for polishing.
+    Returns:
+        The polished text that reads as if written by a native speaker.
+    """
+    system_prompt = dedent("""You are a native-level language editor working with texts in any language.
+    Rewrite the given text so it reads exactly as a fluent native speaker would write it.
+
+    What to do:
+    - Fix ALL errors without exception: grammar, spelling, punctuation, capitalisation
+    - Fix unnatural word order, awkward phrasing, and non-native constructions
+    - Replace calque expressions and literal translations with natural idiomatic equivalents
+    - Smooth out sentence rhythm and flow where it feels off
+    - Keep the same language as the input - do not translate
+    - Preserve the original meaning, intent, and register (formal vs informal)
+    - Preserve the original formatting (line breaks, paragraphs, bullet points, etc.)
+
+    What NOT to do:
+    - Do not change the meaning or add new content
+    - Do not make it more formal or informal than the original unless required for naturalness
+    - Do not summarise or shorten the text
+
+    Only return the polished text, nothing else.""")
+
+    messages = [SystemMessage(system_prompt), HumanMessage(text)]
+    response = await llm.ainvoke(messages)
+    return message_content_to_str(response.content)
+
+
 async def generate_emoji(
     text: str,
     llm: ChatOpenAI = None

@@ -3,6 +3,7 @@ const TAB_ICONS = {
   'translation': '🌐',
   'fluent_translation': '🌎',
   'fixed': '✍️',
+  'polished': '✨',
   'tldr': '⚡',
   'reformulation': '🔄',
   'enrichment': '🦄',
@@ -18,12 +19,13 @@ const TAB_ORDER = {
   'fluent_translation': 1,
   'translation': 2,
   'fixed': 3,
-  'reformulation': 4,
-  'tldr': 5,
-  'enrichment': 6,
-  'emoji': 7,
-  'math_result': 8,
-  'math_script': 9
+  'polished': 4,
+  'reformulation': 5,
+  'tldr': 6,
+  'enrichment': 7,
+  'emoji': 8,
+  'math_result': 9,
+  'math_script': 10
 };
 
 module.exports = { TAB_ICONS, TAB_ORDER };
