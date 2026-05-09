@@ -363,7 +363,12 @@ async def polish_text(
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
     response = await llm.ainvoke(messages)
-    return message_content_to_str(response.content)
+    polished = message_content_to_str(response.content)
+
+    if polished.strip() == text.strip():
+        return text
+
+    return _apply_diff_highlights(text, polished)
 
 
 async def generate_emoji(
