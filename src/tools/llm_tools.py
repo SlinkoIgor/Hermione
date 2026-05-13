@@ -217,7 +217,12 @@ async def fix_text(
     Preserve the original formatting (tabs, line breaks, spaces, paragraphs, etc.) in the text.
     If the text has no errors, return it exactly as provided.
     Only return the fixed text, no explanations or other text.
-    {FORMATTING_RULES}""")
+    {FORMATTING_RULES}
+
+    Do NOT change the following - treat them as intentional style choices, not errors:
+    - A missing period (or other terminal punctuation) at the very end of the text
+    - Sentence-initial lowercase letters (the author may deliberately write in lowercase)
+    - Single quotes used as apostrophes, or any variation in quote/apostrophe style (do not normalise ' to ' or vice versa)""")
 
     messages = [SystemMessage(system_prompt), HumanMessage(text)]
 
@@ -346,7 +351,7 @@ async def polish_text(
     Rewrite the given text so it reads exactly as a fluent native speaker would write it.
 
     What to do:
-    - Fix ALL errors without exception: grammar, spelling, punctuation, capitalisation
+    - Fix ALL errors without exception: grammar, spelling, punctuation
     - Fix unnatural word order, awkward phrasing, and non-native constructions
     - Replace calque expressions and literal translations with natural idiomatic equivalents
     - Smooth out sentence rhythm and flow where it feels off
@@ -358,6 +363,9 @@ async def polish_text(
     - Do not change the meaning or add new content
     - Do not make it more formal or informal than the original unless required for naturalness
     - Do not summarise or shorten the text
+    - Do not add a period (or other terminal punctuation) at the very end of the text if it is missing
+    - Do not capitalise the first letter of sentences if the author wrote them in lowercase
+    - Do not normalise quote or apostrophe style (leave ' as-is, do not change to ' or vice versa)
 
     Only return the polished text, nothing else.""")
 
