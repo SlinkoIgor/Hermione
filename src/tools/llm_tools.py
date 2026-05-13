@@ -25,23 +25,59 @@ def message_content_to_str(content) -> str:
     return str(content)
 
 
+_TYPOGRAPHIC_TABLE = str.maketrans({
+    '\u2018': "'",
+    '\u2019': "'",
+    '\u201c': '"',
+    '\u201d': '"',
+    '\u201e': '"',
+    '\u2013': '-',
+    '\u2014': '-',
+    '\u2026': '...',
+})
+
+_TERMINAL_PUNCT = frozenset('.!?…')
+
+
 def _tokenize(text: str) -> list[str]:
     return re.findall(r'\S+|\s+', text)
 
 
+def _normalize_for_diff(s: str) -> str:
+    """Collapse typographic variants and case so trivial cosmetic changes are ignored."""
+    return s.translate(_TYPOGRAPHIC_TABLE).lower()
+
+
 def _apply_diff_highlights(original: str, corrected: str) -> str:
-    """Highlight only the tokens that actually changed between original and corrected."""
+    """Highlight tokens that meaningfully changed, ignoring cosmetic differences."""
     orig_tokens = _tokenize(original)
     corr_tokens = _tokenize(corrected)
 
     matcher = SequenceMatcher(None, orig_tokens, corr_tokens, autojunk=False)
+    opcodes = list(matcher.get_opcodes())
     result = []
 
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+    for op_idx, (tag, i1, i2, j1, j2) in enumerate(opcodes):
+        orig_chunk = orig_tokens[i1:i2]
+        corr_chunk = corr_tokens[j1:j2]
+
         if tag == 'equal':
-            result.extend(corr_tokens[j1:j2])
-        elif tag in ('replace', 'insert'):
-            for token in corr_tokens[j1:j2]:
+            result.extend(corr_chunk)
+            continue
+
+        orig_norm = ''.join(_normalize_for_diff(t) for t in orig_chunk)
+        corr_norm = ''.join(_normalize_for_diff(t) for t in corr_chunk)
+        is_trivial = orig_norm == corr_norm
+
+        if not is_trivial and tag == 'insert':
+            is_last = op_idx == len(opcodes) - 1
+            if is_last and all(ch in _TERMINAL_PUNCT for ch in ''.join(corr_chunk).strip()):
+                is_trivial = True
+
+        if is_trivial:
+            result.extend(corr_chunk)
+        else:
+            for token in corr_chunk:
                 if token.strip():
                     result.append(f'<b>{token}</b>')
                 else:
