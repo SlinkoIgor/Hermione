@@ -97,7 +97,6 @@ class AgentState:
     existent: str = ""
     out_math_result: str = ""
     out_math_script: str = ""
-    out_translation: str = ""
     out_fluent_translation: str = ""
     out_fixed: str = ""
     out_tldr: str = ""
@@ -128,7 +127,6 @@ class AgentState:
             "existent": self.existent,
             "out_math_result": self.out_math_result,
             "out_math_script": self.out_math_script,
-            "out_translation": self.out_translation,
             "out_fluent_translation": self.out_fluent_translation,
             "out_fixed": self.out_fixed,
             "out_tldr": self.out_tldr,
@@ -281,7 +279,6 @@ class AgentBuilder:
             if task == "text_task":
                 if word_count > 100:
                     routes.append("text_summarization_node")
-                routes.append("text_translation_node")
                 routes.append("text_fluent_translation_node")
                 routes.append("text_fix_node")
                 routes.append("text_reformulation_node")
@@ -430,10 +427,7 @@ class AgentBuilder:
                 model_name = model_names[i] if i < len(model_names) else "unknown"
                 task = None
 
-                if route == "text_translation_node":
-                    task = asyncio.create_task(self._text_translation_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_translation"}
-                elif route == "text_fluent_translation_node":
+                if route == "text_fluent_translation_node":
                     task = asyncio.create_task(self._text_fluent_translation_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_fluent_translation"}
                 elif route == "text_fix_node":
@@ -524,10 +518,7 @@ class AgentBuilder:
             for i, llm in enumerate(llms):
                 model_name = model_names[i] if i < len(model_names) else "unknown"
 
-                if route == "text_translation_node":
-                    tasks.append(self._text_translation_node(state, llm, model_name))
-                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_translation"})
-                elif route == "text_fluent_translation_node":
+                if route == "text_fluent_translation_node":
                     tasks.append(self._text_fluent_translation_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_fluent_translation"})
                 elif route == "text_fix_node":
