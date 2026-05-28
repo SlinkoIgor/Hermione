@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, clipboard, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, clipboard, screen, Menu, dialog } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
@@ -1384,6 +1384,29 @@ async function quitApp() {
 
 // App ready event
 app.on('ready', async () => {
+  const menu = Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        {
+          label: `About CheatKey`,
+          click: () => {
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'About CheatKey',
+              message: `CheatKey`,
+              detail: `Version ${app.getVersion()}`,
+              buttons: ['OK']
+            });
+          }
+        },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }
+  ]);
+  Menu.setApplicationMenu(menu);
+
   try {
     await startPythonServer();
 
