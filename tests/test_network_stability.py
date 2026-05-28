@@ -123,7 +123,6 @@ async def run_agent_test(provider: str, rounds: int, stats: Stats):
     config = get_agent_config(provider=agent_provider, thinking_budget=1000)
     if provider == "google":
         config["base_model"] = "gemini-3-flash-preview"
-        config["fast_model"] = "gemini-3-flash-preview"
     agent = AgentBuilder(native_currency="EUR", provider=agent_provider, **config).build()
 
     for i in range(rounds):

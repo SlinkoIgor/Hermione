@@ -137,30 +137,26 @@ class AgentBuilder:
         native_currency: str = "EUR",
         current_location: str = "Asia/Nicosia",
         base_model: Union[str, List[str]] = None,
-        fast_model: Union[str, List[str]] = None,
         temperature: float = 1,
         provider: Literal["openai", "litellm"] = "openai",
         thinking_budget: int = None,
+        **kwargs,
     ):
         self.native_language = native_language
         self.target_language = target_language
         self.native_currency = native_currency
         self.current_location = current_location
 
-        if base_model is None or fast_model is None:
+        if base_model is None:
             config = get_agent_config(provider=provider)
-            if base_model is None:
-                base_model = config["base_model"]
-            if fast_model is None:
-                fast_model = config["fast_model"]
+            base_model = config["base_model"]
         self.base_model = base_model if isinstance(base_model, list) else [base_model]
-        self.fast_model = fast_model if isinstance(fast_model, list) else [fast_model]
         self.temperature = temperature
         self.provider = provider
         self.thinking_budget = thinking_budget
 
     def _get_llm(self, use_fast: bool = False) -> Union[ChatOpenAI, List[ChatOpenAI]]:
-        model_names = self.fast_model if use_fast else self.base_model
+        model_names = self.base_model
 
         if len(model_names) == 1:
             if self.provider == "litellm":
@@ -186,9 +182,8 @@ class AgentBuilder:
             return get_openai_llm(model_name, self.temperature, self.thinking_budget)
 
     def _get_model_info(self, use_fast: bool = False) -> str:
-        model_names = self.fast_model if use_fast else self.base_model
         reasoning_effort = "low" if self.thinking_budget is not None else "None"
-        return f"provider={self.provider}, models={model_names}, reasoning_effort={reasoning_effort}"
+        return f"provider={self.provider}, models={self.base_model}, reasoning_effort={reasoning_effort}"
 
     async def _task_router_node(self, state: AgentState) -> Dict[str, Any]:
         user_message = state.messages[0]
@@ -326,8 +321,8 @@ class AgentBuilder:
         return {"out_emoji": emoji_text}
 
     async def _math_formula_calculation_node(self, state: AgentState) -> Dict[str, Any]:
-        math_formula_calculation_llm = self._get_single_llm(use_fast=True)
-        logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=True)}")
+        math_formula_calculation_llm = self._get_single_llm(use_fast=False)
+        logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=False)}")
         response = await math_formula_calculation_llm.ainvoke([SystemMessage(math_formula_calculation_prompt), state.messages[0]])
         calculation_result = calculate_formula(message_content_to_str(response.content))
         return {
