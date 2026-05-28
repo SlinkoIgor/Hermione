@@ -11,6 +11,8 @@ from src.tools.llm_tools import (
     polish_text,
     generate_emoji,
     message_content_to_str,
+    _detected_to_language_bucket,
+    _label_to_language_bucket,
 )
 from src.llm_providers import get_openai_llm, get_litellm_llm
 from textwrap import dedent
@@ -64,10 +66,11 @@ router_prompt = dedent("""
     - If the input contains text primarily in {native_language}, set is_native_language to "True"
     - If the input is in any other language, set is_native_language to "False"
     - Be precise: if the user writes in {native_language}, you MUST return "True" for is_native_language
-    - query_language must name the actual language of the input text (e.g. English, Russian), not the user's preference
+    - query_language must name the actual language of the input text using a full English name (e.g. "English", "Russian", "Spanish"), not an abbreviation or code
     - If the input is clearly in English but {native_language} is not English, is_native_language MUST be "False"
     - If the input is clearly in Russian but {native_language} is Russian, is_native_language MUST be "True"
     - Never set is_native_language to "True" just because the topic relates to {native_language}; use the script and wording of the input only
+    - Ignore @mentions (e.g. @username, <@U12345>, <@U12345|Name>) and URLs when detecting language; they are not part of the text's language
 
     Return ONLY the task names, query_language, and is_native_language as a string with comma delimiters, nothing else.
 
@@ -235,15 +238,22 @@ class AgentBuilder:
         if "text_task" not in parts:
             parts = ["text_task"] + parts
         task_names = [task.strip() for task in parts[:-2]]
-        print(parts[-1])
         query_language = parts[-2].strip()
-        is_native_language = parts[-1].strip() == "true"
 
-        if is_native_language and self.native_language.lower() in ("русский", "russian"):
-            has_cyrillic = any("\u0400" <= ch <= "\u04ff" for ch in user_content)
-            if not has_cyrillic:
-                is_native_language = False
-                logger.info("Overriding is_native_language to False: no Cyrillic chars in input")
+        q_bucket = _detected_to_language_bucket(query_language)
+        n_bucket = _label_to_language_bucket(self.native_language)
+        if q_bucket is not None:
+            is_native_language = (q_bucket == n_bucket)
+            logger.info(f"is_native_language set programmatically: {q_bucket} == {n_bucket} → {is_native_language}")
+        elif self.native_language.lower() in ("русский", "russian"):
+            cyrillic_count = sum(1 for ch in user_content if "\u0400" <= ch <= "\u04ff")
+            alpha_count = sum(1 for ch in user_content if ch.isalpha())
+            cyrillic_ratio = cyrillic_count / alpha_count if alpha_count > 0 else 0
+            is_native_language = cyrillic_ratio >= 0.25
+            logger.info(f"is_native_language set via Cyrillic ratio fallback: {cyrillic_ratio:.2f} → {is_native_language}")
+        else:
+            is_native_language = parts[-1].strip() == "true"
+            logger.info(f"is_native_language kept from router: {is_native_language}")
 
         word_count = len(user_content.split())
         if word_count <= 3 and "emoji_generation" not in task_names:

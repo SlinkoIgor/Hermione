@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from textwrap import dedent
 
-FORMATTING_RULES = "Use a hyphen (-) instead of an em dash (—) in all generated text."
+FORMATTING_RULES = "Never use an em dash (—). Use an en dash (–) or a hyphen (-) instead."
 
 
 def message_content_to_str(content) -> str:
@@ -87,15 +87,15 @@ def _apply_diff_highlights(original: str, corrected: str) -> str:
 
 
 _LANG_VARIANTS = (
-    ("english", ("english", "английский")),
+    ("english", ("english", "английский", "american english", "british english")),
     ("russian", ("russian", "русский")),
-    ("spanish", ("spanish", "испанский")),
-    ("german", ("german", "немецкий")),
-    ("french", ("french", "французский")),
-    ("italian", ("italian", "итальянский")),
+    ("spanish", ("spanish", "испанский", "español")),
+    ("german", ("german", "немецкий", "deutsch")),
+    ("french", ("french", "французский", "français")),
+    ("italian", ("italian", "итальянский", "italiano")),
     ("portuguese", ("portuguese", "португальский")),
     ("ukrainian", ("ukrainian", "украинский")),
-    ("chinese", ("chinese", "китайский", "mandarin")),
+    ("chinese", ("chinese", "китайский", "mandarin", "simplified chinese", "traditional chinese")),
     ("japanese", ("japanese", "японский")),
     ("korean", ("korean", "корейский")),
 )
@@ -383,7 +383,7 @@ async def polish_text(
     Returns:
         The polished text that reads as if written by a native speaker.
     """
-    system_prompt = dedent("""You are a native-level language editor working with texts in any language.
+    system_prompt = dedent(f"""You are a native-level language editor working with texts in any language.
     Rewrite the given text so it reads exactly as a fluent native speaker would write it.
 
     What to do:
@@ -402,6 +402,7 @@ async def polish_text(
     - Do not add a period (or other terminal punctuation) at the very end of the text if it is missing
     - Do not capitalise the first letter of sentences if the author wrote them in lowercase
     - Do not normalise quote or apostrophe style (leave ' as-is, do not change to ' or vice versa)
+    - {FORMATTING_RULES}
 
     Only return the polished text, nothing else.""")
 
