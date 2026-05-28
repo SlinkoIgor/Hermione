@@ -171,7 +171,7 @@ class AgentBuilder:
         target_language: str = "English",
         native_currency: str = "EUR",
         current_location: str = "Asia/Nicosia",
-        base_model: Union[str, List[str]] = "gpt-5.4",
+        base_model: Union[str, List[str]] = "gpt-5.5",
         fast_model: Union[str, List[str]] = "gpt-5.4-mini",
         temperature: float = 1,
         provider: Literal["openai", "litellm"] = "openai",

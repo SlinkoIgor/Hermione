@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 MODEL_CONFIGS = {
     "openai": {
-        "base_model": "gpt-5.4-nano",
+        "base_model": "gpt-5.5",
         "fast_model": "gpt-5.4-nano",
         "thinking_budget": None,
     },
