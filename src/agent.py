@@ -1,5 +1,5 @@
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from src.tools.function_calculator import calculate_formula
 from src.tools.llm_tools import (
     translate_text,
@@ -11,7 +11,6 @@ from src.tools.llm_tools import (
     polish_text,
     generate_emoji,
     message_content_to_str,
-    _detected_to_language_bucket,
     _label_to_language_bucket,
 )
 from src.llm_providers import get_openai_llm, get_litellm_llm
@@ -21,8 +20,11 @@ from typing import Dict, Any, List, Literal, Union
 from dataclasses import dataclass, field
 import logging
 import asyncio
+import re
 
 logger = logging.getLogger(__name__)
+
+_MATH_OPERATOR_RE = re.compile(r'[+\-*/^=<>%]|\b(?:log|log10|log2|ln|sin|cos|tan|sqrt|sum|prod|exp)\b', re.IGNORECASE)
 
 
 math_formula_calculation_prompt = dedent("""
@@ -48,42 +50,6 @@ math_formula_calculation_prompt = dedent("""
     ```
 
     **RETURN ONLY THE ANSWER, NO OTHER TEXT.**
-    """)
-
-router_prompt = dedent("""
-    Analyze the user input and determine which tasks it belongs to. Multiple tasks can be relevant for a single input.
-
-    Possible tasks:
-    1. math_formula_calculation - If the input has a math formula
-    2. text_task - all other cases
-    3. emoji_generation - If the input is 1-3 words (not a sentence)
-
-    In cases when you doubt whether to include a task in the list – it's better to include it.
-
-    Language detection:
-    - Identify the primary language of the user input (e.g., Russian, English, Spanish, etc.)
-    - The native language is: {native_language}
-    - Determine if the user input is written in {native_language} by examining the actual text content, script, and vocabulary
-    - If the input contains text primarily in {native_language}, set is_native_language to "True"
-    - If the input is in any other language, set is_native_language to "False"
-    - Be precise: if the user writes in {native_language}, you MUST return "True" for is_native_language
-    - query_language must name the actual language of the input text using a full English name (e.g. "English", "Russian", "Spanish"), not an abbreviation or code
-    - If the input is clearly in English but {native_language} is not English, is_native_language MUST be "False"
-    - If the input is clearly in Russian but {native_language} is Russian, is_native_language MUST be "True"
-    - Never set is_native_language to "True" just because the topic relates to {native_language}; use the script and wording of the input only
-    - Ignore @mentions (e.g. @username, <@U12345>, <@U12345|Name>) and URLs when detecting language; they are not part of the text's language
-
-    Return ONLY the task names, query_language, and is_native_language as a string with comma delimiters, nothing else.
-
-    Return format: "task1,task2,...,taskN,query_language,is_native_language"
-    Examples:
-    - Input in {native_language}: "text_task,{native_language},True"
-    - Input in English: "text_task,English,False"
-    - Input in Spanish: "text_task,Spanish,False"
-    - Input with 1-2 words: "emoji_generation,text_task,English,False"
-
-    The second-to-last part (query_language) should be the detected language name.
-    The last part (is_native_language) must be "True" if the input is in {native_language}, "False" otherwise.
     """)
 
 
@@ -225,60 +191,40 @@ class AgentBuilder:
         return f"provider={self.provider}, models={model_names}, reasoning_effort={reasoning_effort}"
 
     async def _task_router_node(self, state: AgentState) -> Dict[str, Any]:
-        router_llm = self._get_single_llm(use_fast=True)
-        logger.info(f"[MODEL_INFO] task_router_node: {self._get_model_info(use_fast=True)}")
-        task_message = SystemMessage(router_prompt.format(native_language=self.native_language))
         user_message = state.messages[0]
         user_content = user_message.content[:200] if hasattr(user_message, "content") and user_message.content else ""
-        task_response = await router_llm.ainvoke([task_message, HumanMessage(content=user_content)])
-        raw_router = message_content_to_str(task_response.content)
-        parts = None
-        for line in reversed([ln.strip() for ln in raw_router.splitlines() if ln.strip()]):
-            pl = [p.strip() for p in line.lower().split(",") if p.strip()]
-            if len(pl) >= 3 and pl[-1] in ("true", "false"):
-                parts = pl
-                break
-        if parts is None:
-            pl = [p.strip() for p in raw_router.lower().split(",") if p.strip()]
-            parts = pl if len(pl) >= 3 else ["text_task", "english", "false"]
-        if "text_task" not in parts:
-            parts = ["text_task"] + parts
-        task_names = [task.strip() for task in parts[:-2]]
-        query_language = parts[-2].strip()
-
-        q_bucket = _detected_to_language_bucket(query_language)
-        n_bucket = _label_to_language_bucket(self.native_language)
-        if q_bucket is not None:
-            is_native_language = (q_bucket == n_bucket)
-            logger.info(f"is_native_language set programmatically: {q_bucket} == {n_bucket} → {is_native_language}")
-        elif self.native_language.lower() in ("русский", "russian"):
-            cyrillic_count = sum(1 for ch in user_content if "\u0400" <= ch <= "\u04ff")
-            alpha_count = sum(1 for ch in user_content if ch.isalpha())
-            cyrillic_ratio = cyrillic_count / alpha_count if alpha_count > 0 else 0
-            is_native_language = cyrillic_ratio >= 0.25
-            logger.info(f"is_native_language set via Cyrillic ratio fallback: {cyrillic_ratio:.2f} → {is_native_language}")
-        else:
-            is_native_language = parts[-1].strip() == "true"
-            logger.info(f"is_native_language kept from router: {is_native_language}")
-
-        if is_native_language and self.native_language.lower() in ("русский", "russian"):
-            cyrillic_count = sum(1 for ch in user_content if "\u0400" <= ch <= "\u04ff")
-            alpha_count = sum(1 for ch in user_content if ch.isalpha())
-            cyrillic_ratio = cyrillic_count / alpha_count if alpha_count > 0 else 0
-            if cyrillic_ratio < 0.25:
-                is_native_language = False
-                logger.info(f"Cyrillic ratio guard overrides to False: ratio={cyrillic_ratio:.2f}")
-
         word_count = len(user_content.split())
-        if word_count <= 3 and "emoji_generation" not in task_names:
+
+        task_names = ["text_task"]
+
+        if word_count <= 3:
             task_names = ["emoji_generation"] + task_names
 
-        print("is_native_language", is_native_language, "query_language", query_language, "native_language", self.native_language)
+        non_space = [ch for ch in user_content if not ch.isspace()]
+        if non_space:
+            non_alpha = [ch for ch in non_space if not ch.isalpha()]
+            symbol_ratio = len(non_alpha) / len(non_space)
+            if symbol_ratio > 0.20 and _MATH_OPERATOR_RE.search(user_content):
+                task_names.append("math_formula_calculation")
+                logger.info(f"Math formula detected: symbol_ratio={symbol_ratio:.2f}")
 
-        return {"tasks": task_names,
-                "is_native_language": is_native_language,
-                "query_language": query_language,
-                "existent": user_message.content}
+        cyrillic_count = sum(1 for ch in user_content if "\u0400" <= ch <= "\u04ff")
+        alpha_count = sum(1 for ch in user_content if ch.isalpha())
+        cyrillic_ratio = cyrillic_count / alpha_count if alpha_count > 0 else 0
+        is_native_language = (
+            cyrillic_ratio >= 0.25
+            if self.native_language.lower() in ("русский", "russian")
+            else False
+        )
+        query_language = "Russian" if is_native_language else "English"
+        logger.info(f"Tasks: {task_names}, cyrillic_ratio={cyrillic_ratio:.2f}, is_native={is_native_language}")
+
+        return {
+            "tasks": task_names,
+            "is_native_language": is_native_language,
+            "query_language": query_language,
+            "existent": user_message.content,
+        }
 
     def _get_routes(self, state: AgentState) -> list[str]:
         routes = []
