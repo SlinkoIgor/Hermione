@@ -261,6 +261,14 @@ class AgentBuilder:
             is_native_language = parts[-1].strip() == "true"
             logger.info(f"is_native_language kept from router: {is_native_language}")
 
+        if is_native_language and self.native_language.lower() in ("русский", "russian"):
+            cyrillic_count = sum(1 for ch in user_content if "\u0400" <= ch <= "\u04ff")
+            alpha_count = sum(1 for ch in user_content if ch.isalpha())
+            cyrillic_ratio = cyrillic_count / alpha_count if alpha_count > 0 else 0
+            if cyrillic_ratio < 0.25:
+                is_native_language = False
+                logger.info(f"Cyrillic ratio guard overrides to False: ratio={cyrillic_ratio:.2f}")
+
         word_count = len(user_content.split())
         if word_count <= 3 and "emoji_generation" not in task_names:
             task_names = ["emoji_generation"] + task_names
