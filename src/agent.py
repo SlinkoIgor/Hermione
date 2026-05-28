@@ -15,6 +15,7 @@ from src.tools.llm_tools import (
     _label_to_language_bucket,
 )
 from src.llm_providers import get_openai_llm, get_litellm_llm
+from src.agent_config import get_agent_config
 from textwrap import dedent
 from typing import Dict, Any, List, Literal, Union
 from dataclasses import dataclass, field
@@ -171,8 +172,8 @@ class AgentBuilder:
         target_language: str = "English",
         native_currency: str = "EUR",
         current_location: str = "Asia/Nicosia",
-        base_model: Union[str, List[str]] = "gpt-5.5",
-        fast_model: Union[str, List[str]] = "gpt-5.4-mini",
+        base_model: Union[str, List[str]] = None,
+        fast_model: Union[str, List[str]] = None,
         temperature: float = 1,
         provider: Literal["openai", "litellm"] = "openai",
         thinking_budget: int = None,
@@ -181,6 +182,13 @@ class AgentBuilder:
         self.target_language = target_language
         self.native_currency = native_currency
         self.current_location = current_location
+
+        if base_model is None or fast_model is None:
+            config = get_agent_config(provider=provider)
+            if base_model is None:
+                base_model = config["base_model"]
+            if fast_model is None:
+                fast_model = config["fast_model"]
         self.base_model = base_model if isinstance(base_model, list) else [base_model]
         self.fast_model = fast_model if isinstance(fast_model, list) else [fast_model]
         self.temperature = temperature

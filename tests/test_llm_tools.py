@@ -72,7 +72,7 @@ def test_resolve_translation_target_empty_query_uses_flag():
 @pytest.fixture
 def openai_llm():
     config = get_agent_config(provider="openai")
-    model = config.get("base_model", "gpt-5.4-mini")
+    model = config["base_model"]
     if isinstance(model, list):
         model = model[0]
     return get_openai_llm(model, temperature=1)
