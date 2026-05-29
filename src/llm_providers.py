@@ -15,8 +15,8 @@ def get_litellm_client() -> openai.OpenAI:
 
 def get_openai_llm(model_name: str, temperature: float = 1, thinking_budget: int = None) -> ChatOpenAI:
     kwargs = {}
-    if thinking_budget is not None:
-        kwargs["model_kwargs"] = {"reasoning_effort": "low"} if "gpt" in model_name.lower() else {}
+    if "gpt" in model_name.lower():
+        kwargs["model_kwargs"] = {"reasoning_effort": "low"}
     return ChatOpenAI(model=model_name, temperature=temperature, **kwargs)
 
 def get_litellm_llm(model_name: str, temperature: float = 1, thinking_budget: int = None) -> ChatOpenAI:
@@ -31,14 +31,8 @@ def get_litellm_llm(model_name: str, temperature: float = 1, thinking_budget: in
         "openai_api_base": LITELLM_HOST
     }
 
-    if thinking_budget is not None:
-        model_kwargs = {}
-        if "gemini" in model_name.lower():
-            model_kwargs["reasoning_effort"] = "low"
-        elif "gpt" in model_name.lower():
-            model_kwargs["reasoning_effort"] = "low"
-        if model_kwargs:
-            kwargs["model_kwargs"] = model_kwargs
+    if "gemini" in model_name.lower() or "gpt" in model_name.lower():
+        kwargs["model_kwargs"] = {"reasoning_effort": "low"}
 
     return ChatOpenAI(**kwargs)
 
