@@ -1,6 +1,6 @@
 {
   "name": "cheatkey-electron",
-  "version": "1.0.37",
+  "version": "1.0.38",
   "description": "Electron app for CheatKey API",
   "main": "src/main.js",
   "scripts": {

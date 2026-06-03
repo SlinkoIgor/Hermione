@@ -771,7 +771,7 @@ function createPopupWindow(responseText, isLoading = false) {
             // Keyboard navigation
             document.addEventListener('keydown', function(e) {
               if (e.key === 'Escape') {
-                window.close();
+                ipcRenderer.send('close-popup');
               } else if (e.key === ' ') {
                 e.preventDefault();
                 doCopy();
@@ -1417,7 +1417,9 @@ app.on('ready', async () => {
     registerShortcut();
 
     app.on('activate', () => {
-      if (IS_DEV && BrowserWindow.getAllWindows().length === 0) {
+      if (popupWindow && !popupWindow.isDestroyed() && !popupWindow.isVisible()) {
+        popupWindow.show();
+      } else if (IS_DEV && BrowserWindow.getAllWindows().length === 0) {
         createWindow();
       }
     });
@@ -1592,8 +1594,6 @@ ipcMain.on('get-process-info', (event) => {
 // Add this near the other IPC handlers
 ipcMain.on('close-popup', () => {
   if (popupWindow && !popupWindow.isDestroyed()) {
-    popupWindow.destroy();
-    popupWindow = null;
-    userClosedPopupForCurrentRequest = true;
+    popupWindow.hide();
   }
 });
