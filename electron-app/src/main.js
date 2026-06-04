@@ -353,15 +353,26 @@ function createPopupWindow(responseText, isLoading = false) {
                     ? (activeIdx - 1 + tabs.length) % tabs.length
                     : (activeIdx + 1) % tabs.length;
                   tabs[next].click();
+                } else if (e.metaKey || e.ctrlKey) {
+                  const { webFrame } = require('electron');
+                  if (e.key === '=' || e.key === '+') {
+                    e.preventDefault();
+                    webFrame.setZoomFactor(webFrame.getZoomFactor() + 0.1);
+                  } else if (e.key === '-') {
+                    e.preventDefault();
+                    webFrame.setZoomFactor(Math.max(0.5, webFrame.getZoomFactor() - 0.1));
+                  } else if (e.key === '0') {
+                    e.preventDefault();
+                    webFrame.setZoomFactor(1.0);
+                  }
                 }
               });
 
               document.addEventListener('copy', function(e) {
-                const selection = window.getSelection();
-                const selectedText = selection.toString();
+                const selectedText = window.getSelection().toString();
                 if (selectedText) {
                   e.preventDefault();
-                  e.clipboardData.setData('text/plain', selectedText);
+                  require('electron').clipboard.writeText(selectedText);
                 }
               });
 
@@ -768,7 +779,6 @@ function createPopupWindow(responseText, isLoading = false) {
 
             document.getElementById('copyBtn').addEventListener('click', doCopy);
 
-            // Keyboard navigation
             document.addEventListener('keydown', function(e) {
               if (e.key === 'Escape') {
                 ipcRenderer.send('close-popup');
@@ -784,16 +794,26 @@ function createPopupWindow(responseText, isLoading = false) {
                   ? (activeIdx - 1 + tabs.length) % tabs.length
                   : (activeIdx + 1) % tabs.length;
                 tabs[next].click();
+              } else if (e.metaKey || e.ctrlKey) {
+                const { webFrame } = require('electron');
+                if (e.key === '=' || e.key === '+') {
+                  e.preventDefault();
+                  webFrame.setZoomFactor(webFrame.getZoomFactor() + 0.1);
+                } else if (e.key === '-') {
+                  e.preventDefault();
+                  webFrame.setZoomFactor(Math.max(0.5, webFrame.getZoomFactor() - 0.1));
+                } else if (e.key === '0') {
+                  e.preventDefault();
+                  webFrame.setZoomFactor(1.0);
+                }
               }
             });
 
-            // Handle copy event to ensure plain text copying
             document.addEventListener('copy', function(e) {
-              const selection = window.getSelection();
-              const selectedText = selection.toString();
+              const selectedText = window.getSelection().toString();
               if (selectedText) {
                 e.preventDefault();
-                e.clipboardData.setData('text/plain', selectedText);
+                require('electron').clipboard.writeText(selectedText);
               }
             });
           });
