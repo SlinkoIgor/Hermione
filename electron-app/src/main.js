@@ -354,25 +354,25 @@ function createPopupWindow(responseText, isLoading = false) {
                     : (activeIdx + 1) % tabs.length;
                   tabs[next].click();
                 } else if (e.metaKey || e.ctrlKey) {
-                  const { webFrame } = require('electron');
-                  if (e.key === '=' || e.key === '+') {
-                    e.preventDefault();
-                    webFrame.setZoomFactor(webFrame.getZoomFactor() + 0.1);
-                  } else if (e.key === '-') {
-                    e.preventDefault();
-                    webFrame.setZoomFactor(Math.max(0.5, webFrame.getZoomFactor() - 0.1));
-                  } else if (e.key === '0') {
-                    e.preventDefault();
-                    webFrame.setZoomFactor(1.0);
+                  if (e.key === 'c') {
+                    const selectedText = window.getSelection().toString();
+                    if (selectedText) {
+                      e.preventDefault();
+                      require('electron').clipboard.writeText(selectedText);
+                    }
+                  } else {
+                    const { webFrame } = require('electron');
+                    if (e.key === '=' || e.key === '+') {
+                      e.preventDefault();
+                      webFrame.setZoomFactor(webFrame.getZoomFactor() + 0.1);
+                    } else if (e.key === '-') {
+                      e.preventDefault();
+                      webFrame.setZoomFactor(Math.max(0.5, webFrame.getZoomFactor() - 0.1));
+                    } else if (e.key === '0') {
+                      e.preventDefault();
+                      webFrame.setZoomFactor(1.0);
+                    }
                   }
-                }
-              });
-
-              document.addEventListener('copy', function(e) {
-                const selectedText = window.getSelection().toString();
-                if (selectedText) {
-                  e.preventDefault();
-                  require('electron').clipboard.writeText(selectedText);
                 }
               });
 
@@ -795,25 +795,25 @@ function createPopupWindow(responseText, isLoading = false) {
                   : (activeIdx + 1) % tabs.length;
                 tabs[next].click();
               } else if (e.metaKey || e.ctrlKey) {
-                const { webFrame } = require('electron');
-                if (e.key === '=' || e.key === '+') {
-                  e.preventDefault();
-                  webFrame.setZoomFactor(webFrame.getZoomFactor() + 0.1);
-                } else if (e.key === '-') {
-                  e.preventDefault();
-                  webFrame.setZoomFactor(Math.max(0.5, webFrame.getZoomFactor() - 0.1));
-                } else if (e.key === '0') {
-                  e.preventDefault();
-                  webFrame.setZoomFactor(1.0);
+                if (e.key === 'c') {
+                  const selectedText = window.getSelection().toString();
+                  if (selectedText) {
+                    e.preventDefault();
+                    require('electron').clipboard.writeText(selectedText);
+                  }
+                } else {
+                  const { webFrame } = require('electron');
+                  if (e.key === '=' || e.key === '+') {
+                    e.preventDefault();
+                    webFrame.setZoomFactor(webFrame.getZoomFactor() + 0.1);
+                  } else if (e.key === '-') {
+                    e.preventDefault();
+                    webFrame.setZoomFactor(Math.max(0.5, webFrame.getZoomFactor() - 0.1));
+                  } else if (e.key === '0') {
+                    e.preventDefault();
+                    webFrame.setZoomFactor(1.0);
+                  }
                 }
-              }
-            });
-
-            document.addEventListener('copy', function(e) {
-              const selectedText = window.getSelection().toString();
-              if (selectedText) {
-                e.preventDefault();
-                require('electron').clipboard.writeText(selectedText);
               }
             });
           });
@@ -1422,6 +1422,18 @@ app.on('ready', async () => {
         },
         { type: 'separator' },
         { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
       ]
     }
   ]);
