@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 MODEL_CONFIGS = {
     "openai": {
-        "base_model": "gpt-5.5",
+        "base_model": "gpt-5.6-sol",
         "thinking_budget": None,
     },
     "litellm": {
