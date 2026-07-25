@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional, Literal
 import uvicorn
 from dotenv import load_dotenv
@@ -142,6 +142,14 @@ app.add_middleware(
 class SimpleRequest(BaseModel):
     content: str
     provider_mode: Literal["openai_only", "litellm_only", "both"] = "litellm_only"
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, content):
+        if not content.strip():
+            raise ValueError("content must contain non-whitespace text")
+        return content
+
 
 async def check_litellm_availability() -> bool:
     """Check if LiteLLM API is available."""

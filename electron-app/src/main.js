@@ -21,6 +21,9 @@ let lastActiveTab = 0;
 let hasShownPopupForCurrentRequest = false;
 let userClosedPopupForCurrentRequest = false;
 let isShortcutHandling = false;
+let handleTextRequest = null;
+let activeRequestToken = 0;
+let activeRequestController = null;
 
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
@@ -208,6 +211,28 @@ function createPopupWindow(responseText, isLoading = false) {
             }
             .tab-content.active {
               display: block;
+            }
+            .manual-text-input {
+              box-sizing: border-box;
+              width: 100%;
+              height: 100%;
+              min-height: 120px;
+              padding: 0;
+              resize: none;
+              border: 0;
+              border-radius: 0;
+              outline: none;
+              background: transparent;
+              color: #1a1a1a;
+              font: inherit;
+              line-height: 1.4;
+            }
+            .manual-text-input:focus {
+              background: transparent;
+            }
+            .manual-input-content {
+              box-sizing: border-box;
+              height: 100%;
             }
             .error-text {
               color: #c0392b;
@@ -674,12 +699,54 @@ function createPopupWindow(responseText, isLoading = false) {
           .tab-content.active {
             display: block;
           }
+          .manual-text-input {
+            box-sizing: border-box;
+            width: 100%;
+            height: 100%;
+            min-height: 120px;
+            padding: 0;
+            resize: none;
+            border: 0;
+            border-radius: 0;
+            outline: none;
+            background: transparent;
+            color: #1a1a1a;
+            font: inherit;
+            line-height: 1.4;
+          }
+          .manual-text-input:focus {
+            background: transparent;
+          }
+          .manual-input-content {
+            box-sizing: border-box;
+            height: 100%;
+          }
           .error-text {
             color: #c0392b;
             font-size: 12px;
             line-height: 1.5;
             white-space: pre-wrap;
             word-break: break-word;
+          }
+          .loading-dots {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            font-size: 32px;
+            color: #666;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            letter-spacing: 2px;
+          }
+          .dot {
+            opacity: 0;
+            animation: fadeInOut 1s infinite;
+          }
+          .dot:nth-child(2) { animation-delay: 0.333s; }
+          .dot:nth-child(3) { animation-delay: 0.666s; }
+          @keyframes fadeInOut {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 1; }
           }
           ::-webkit-scrollbar {
             width: 8px;
@@ -1091,6 +1158,32 @@ function sendCopyShortcut() {
   });
 }
 
+function readPasteboardChangeCount() {
+  return new Promise((resolve, reject) => {
+    execFile(
+      '/usr/bin/osascript',
+      [
+        '-l',
+        'JavaScript',
+        '-e',
+        'ObjC.import("AppKit"); Number($.NSPasteboard.generalPasteboard.changeCount)'
+      ],
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        const changeCount = Number.parseInt(stdout.trim(), 10);
+        if (!Number.isInteger(changeCount)) {
+          reject(new Error('Unable to read pasteboard change count'));
+          return;
+        }
+        resolve(changeCount);
+      }
+    );
+  });
+}
+
 function readSelectedTextViaAccessibility() {
   return new Promise((resolve, reject) => {
     execFile(
@@ -1105,11 +1198,15 @@ function readSelectedTextViaAccessibility() {
         '-e',
         'set focusedElement to value of attribute "AXFocusedUIElement" of activeProcess',
         '-e',
-        'return value of attribute "AXSelectedText" of focusedElement',
+        'set selectedText to value of attribute "AXSelectedText" of focusedElement',
+        '-e',
+        'if selectedText is missing value then return "__CHEATKEY_NO_SELECTION__"',
+        '-e',
+        'return "__CHEATKEY_SELECTED__" & selectedText',
         '-e',
         'on error',
         '-e',
-        'return ""',
+        'return "__CHEATKEY_UNSUPPORTED__"',
         '-e',
         'end try',
         '-e',
@@ -1120,7 +1217,19 @@ function readSelectedTextViaAccessibility() {
           reject(error);
           return;
         }
-        resolve(stdout.replace(/\r?\n$/, ''));
+        const result = stdout.replace(/\r?\n$/, '');
+        if (result.startsWith('__CHEATKEY_SELECTED__')) {
+          resolve({
+            status: 'selected',
+            text: result.slice('__CHEATKEY_SELECTED__'.length)
+          });
+          return;
+        }
+        if (result === '__CHEATKEY_NO_SELECTION__') {
+          resolve({ status: 'none', text: '' });
+          return;
+        }
+        resolve({ status: 'unsupported', text: '' });
       }
     );
   });
@@ -1172,54 +1281,101 @@ async function copySelectedText() {
     return null;
   }
 
-  const accessibilityText = await readSelectedTextViaAccessibility();
-  if (accessibilityText) {
-    clipboard.writeText(accessibilityText);
-    return accessibilityText;
+  const accessibilitySelection = await readSelectedTextViaAccessibility();
+  if (accessibilitySelection.status === 'selected') {
+    if (!accessibilitySelection.text.trim()) {
+      return null;
+    }
+    clipboard.writeText(accessibilitySelection.text);
+    return accessibilitySelection.text;
   }
-
-  const previousText = clipboard.readText();
+  if (accessibilitySelection.status === 'none') {
+    return null;
+  }
 
   await waitForShortcutRelease();
-  clipboard.clear();
+  const previousChangeCount = await readPasteboardChangeCount();
+  await sendCopyShortcut();
+  await delay(50);
+  const currentChangeCount = await readPasteboardChangeCount();
 
-  try {
-    await sendCopyShortcut();
-  } catch (error) {
-    if (previousText) {
-      clipboard.writeText(previousText);
+  if (currentChangeCount === previousChangeCount) {
+    return null;
+  }
+
+  const copiedText = clipboard.readText();
+  return copiedText.trim() ? copiedText : null;
+}
+
+function createTextInputWindow() {
+  if (popupWindow && !popupWindow.isDestroyed()) {
+    popupWindow.destroy();
+  }
+
+  lastActiveTab = 0;
+  hasShownPopupForCurrentRequest = false;
+  userClosedPopupForCurrentRequest = false;
+
+  const inputWindow = createPopupWindow({
+    tool_warning: false,
+    output: {
+      existent: '<textarea id="manualTextInput" class="manual-text-input" placeholder="Enter text and press Enter"></textarea>'
     }
-    throw error;
+  }, false);
+
+  if (!inputWindow) {
+    return;
   }
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const selectedText = clipboard.readText();
-    if (selectedText) {
-      return selectedText;
-    }
-    await delay(25);
-  }
-
-  if (previousText) {
-    clipboard.writeText(previousText);
-  }
-
-  return null;
+  inputWindow.webContents.once('did-finish-load', () => {
+    inputWindow.webContents.executeJavaScript(`
+      (() => {
+        const input = document.getElementById('manualTextInput');
+        if (!input) return;
+        const { ipcRenderer } = require('electron');
+        input.closest('.tab-content')?.classList.add('manual-input-content');
+        document.getElementById('copyBtn')?.remove();
+        input.addEventListener('keydown', event => {
+          event.stopPropagation();
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            ipcRenderer.send('close-popup');
+            return;
+          }
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            if (input.value.trim()) {
+              ipcRenderer.send('submit-manual-text', input.value);
+            }
+          }
+        });
+        input.focus();
+      })()
+    `);
+  });
 }
 
 // Handle the global shortcut
 function registerShortcut() {
-  globalShortcut.register('Command+Option+H', async () => {
+  handleTextRequest = async (providedText = null) => {
     if (process.platform === 'darwin') {
       if (isShortcutHandling) {
         return;
       }
 
       isShortcutHandling = true;
+      const requestToken = ++activeRequestToken;
+      if (activeRequestController) {
+        activeRequestController.abort();
+        activeRequestController = null;
+      }
+      const isManualInput = (
+        typeof providedText === 'string' && Boolean(providedText.trim())
+      );
       let selectedText;
 
       try {
-        selectedText = await copySelectedText();
+        selectedText = isManualInput ? providedText : await copySelectedText();
       } catch (error) {
         log.error(`Failed to copy selected text: ${error}`);
         await dialog.showMessageBox({
@@ -1239,6 +1395,10 @@ function registerShortcut() {
         let allComplete = false;
 
         const updatePopup = async (output, isLoading) => {
+          if (requestToken !== activeRequestToken) {
+            return;
+          }
+
           // Save active tab before closing window
           if (popupWindow && !popupWindow.isDestroyed()) {
             try {
@@ -1258,11 +1418,36 @@ function registerShortcut() {
             tool_warning: false,
             output: output
           };
+          if (requestToken !== activeRequestToken) {
+            return;
+          }
           createPopupWindow(responseData, isLoading);
         };
 
-        // Close existing popup if present to clear old content
-        if (popupWindow && !popupWindow.isDestroyed()) {
+        if (
+          isManualInput &&
+          popupWindow &&
+          !popupWindow.isDestroyed()
+        ) {
+          await popupWindow.webContents.executeJavaScript(`
+            (() => {
+              const tabs = document.getElementById('tabsContainer');
+              const content = document.getElementById('content');
+              if (tabs) tabs.innerHTML = '';
+              if (content) {
+                content.innerHTML = \`
+                  <div class="loading-dots" id="loadingDots">
+                    <span class="dot">.</span>
+                    <span class="dot">.</span>
+                    <span class="dot">.</span>
+                  </div>
+                \`;
+              }
+              document.getElementById('copyBtn')?.remove();
+            })()
+          `);
+          isPopupShowingContent = false;
+        } else if (popupWindow && !popupWindow.isDestroyed()) {
           popupWindow.destroy();
           popupWindow = null;
           isPopupShowingContent = false;
@@ -1270,13 +1455,16 @@ function registerShortcut() {
 
         // Reset flags for new request
         lastActiveTab = 0;
-        hasShownPopupForCurrentRequest = false;
+        hasShownPopupForCurrentRequest = isManualInput;
         userClosedPopupForCurrentRequest = false;
 
-        // Show fresh loading popup immediately
-        updatePopup({}, true);
+        if (!isManualInput) {
+          updatePopup({}, true);
+        }
 
         const requestStartTime = Date.now();
+        const requestController = new AbortController();
+        activeRequestController = requestController;
 
         fetch(`http://${API_HOST}:${API_PORT}/runs/stream`, {
           method: 'POST',
@@ -1287,6 +1475,7 @@ function registerShortcut() {
             content: selectedText,
             provider_mode: PROVIDER_MODE
           }),
+          signal: requestController.signal
         })
         .then(async response => {
           if (!response.ok) {
@@ -1299,6 +1488,9 @@ function registerShortcut() {
 
           return new Promise((resolve, reject) => {
             stream.on('data', (chunk) => {
+              if (requestToken !== activeRequestToken) {
+                return;
+              }
               buffer += decoder.decode(chunk, { stream: true });
               const lines = buffer.split('\n');
               buffer = lines.pop() || '';
@@ -1371,6 +1563,10 @@ function registerShortcut() {
             });
 
             stream.on('end', () => {
+              if (requestToken !== activeRequestToken) {
+                resolve();
+                return;
+              }
               if (buffer.trim()) {
                 const line = buffer.trim();
                 if (line.startsWith('data: ')) {
@@ -1416,11 +1612,25 @@ function registerShortcut() {
           });
         })
         .catch(error => {
+          if (error.name === 'AbortError') {
+            return;
+          }
           console.error('Error calling API:', error);
           updatePopup({ error: `Failed to get response from API: ${error.message}` }, false);
+        })
+        .finally(() => {
+          if (activeRequestController === requestController) {
+            activeRequestController = null;
+          }
         });
+      } else {
+        createTextInputWindow();
       }
     }
+  };
+
+  globalShortcut.register('Command+Option+H', () => {
+    handleTextRequest();
   });
 }
 
@@ -1791,4 +2001,11 @@ ipcMain.on('close-popup', () => {
   if (popupWindow && !popupWindow.isDestroyed()) {
     popupWindow.hide();
   }
+});
+
+ipcMain.on('submit-manual-text', (event, text) => {
+  if (typeof text !== 'string' || !text.trim() || !handleTextRequest) {
+    return;
+  }
+  handleTextRequest(text);
 });

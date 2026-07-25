@@ -1,5 +1,5 @@
 ---
-description: Build and deploy CheatKey Electron app to /Applications. Follow this workflow when the user asks to build, deploy, ship, or install the app, or says "билди", "положи в applications", "задеплой".
+description: Always install CheatKey to /Applications after any build, including verification builds. Also follow when asked to build, deploy, ship, or install.
 alwaysApply: false
 ---
 
@@ -7,6 +7,8 @@ alwaysApply: false
 
 Project root: `/Users/Igor.Slinko/projects/hermione`
 Electron app: `electron-app/`
+
+Every build must be installed. Whenever `npm run build` is executed for any reason, always complete steps 3 and 4. Never leave a verification build only in `dist`.
 
 ## Workflow
 
