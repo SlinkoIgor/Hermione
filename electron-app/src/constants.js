@@ -7,6 +7,7 @@ const TAB_ICONS = {
   'reformulation': '🔄',
   'enrichment': '🦄',
   'emoji': '🙏',
+  'tz_conversion': '🕒',
   'math_result': '🔢',
   'math_script': '🐍',
   'error': '⚠️'
@@ -22,8 +23,9 @@ const TAB_ORDER = {
   'tldr': 5,
   'enrichment': 6,
   'emoji': 7,
-  'math_result': 8,
-  'math_script': 9
+  'tz_conversion': 8,
+  'math_result': 9,
+  'math_script': 10
 };
 
 module.exports = { TAB_ICONS, TAB_ORDER };

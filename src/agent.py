@@ -10,6 +10,7 @@ from src.tools.llm_tools import (
     text_enrichment,
     polish_text,
     generate_emoji,
+    convert_time_zones,
     message_content_to_str,
     _label_to_language_bucket,
 )
@@ -70,6 +71,7 @@ class AgentState:
     out_polished: str = ""
     out_enrichment: str = ""
     out_emoji: str = ""
+    out_tz_conversion: str = ""
 
     def update(self, updates: Dict[str, Any]):
         for key, value in updates.items():
@@ -100,6 +102,7 @@ class AgentState:
             "out_polished": self.out_polished,
             "out_enrichment": self.out_enrichment,
             "out_emoji": self.out_emoji,
+            "out_tz_conversion": self.out_tz_conversion,
         }
 
 
@@ -222,7 +225,7 @@ class AgentBuilder:
         }
 
     def _get_routes(self, state: AgentState) -> list[str]:
-        routes = []
+        routes = ["time_zone_conversion_node"]
         word_count = len(state.messages[0].content.split())
         for task in state.tasks:
             if task == "text_task":
@@ -320,6 +323,22 @@ class AgentBuilder:
         )
         return {"out_emoji": emoji_text}
 
+    async def _time_zone_conversion_node(
+        self,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str = None
+    ) -> Dict[str, Any]:
+        model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
+        logger.info(f"[MODEL_INFO] time_zone_conversion_node: {model_info}")
+        conversion = await convert_time_zones(
+            text=state.messages[0].content,
+            llm=llm
+        )
+        if not conversion:
+            return {}
+        return {"out_tz_conversion": conversion}
+
     async def _math_formula_calculation_node(self, state: AgentState) -> Dict[str, Any]:
         math_formula_calculation_llm = self._get_single_llm(use_fast=False)
         logger.info(f"[MODEL_INFO] math_formula_calculation_node: {self._get_model_info(use_fast=False)}")
@@ -397,6 +416,9 @@ class AgentBuilder:
                 elif route == "emoji_generation_node":
                     task = asyncio.create_task(self._emoji_generation_node(state, llm, model_name))
                     metadata = {"route": route, "model": model_name, "output_key": "out_emoji"}
+                elif route == "time_zone_conversion_node":
+                    task = asyncio.create_task(self._time_zone_conversion_node(state, llm, model_name))
+                    metadata = {"route": route, "model": model_name, "output_key": "out_tz_conversion"}
                 elif route == "math_formula_calculation_node":
                     task = asyncio.create_task(self._math_formula_calculation_node(state))
                     metadata = {"route": route, "model": model_name, "output_key": "out_math_result"}
@@ -488,6 +510,9 @@ class AgentBuilder:
                 elif route == "emoji_generation_node":
                     tasks.append(self._emoji_generation_node(state, llm, model_name))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_emoji"})
+                elif route == "time_zone_conversion_node":
+                    tasks.append(self._time_zone_conversion_node(state, llm, model_name))
+                    task_metadata.append({"route": route, "model": model_name, "output_key": "out_tz_conversion"})
                 elif route == "math_formula_calculation_node":
                     tasks.append(self._math_formula_calculation_node(state))
                     task_metadata.append({"route": route, "model": model_name, "output_key": "out_math_result"})
