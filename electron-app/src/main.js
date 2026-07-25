@@ -20,6 +20,7 @@ let lastPopupBounds = {
 let lastActiveTab = 0;
 let hasShownPopupForCurrentRequest = false;
 let userClosedPopupForCurrentRequest = false;
+let isShortcutHandling = false;
 
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
@@ -985,7 +986,9 @@ function createPopupWindow(responseText, isLoading = false) {
     popupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
 
     if (!hasShownPopupForCurrentRequest) {
+      app.focus({ steal: true });
       popupWindow.show();
+      popupWindow.focus();
       hasShownPopupForCurrentRequest = true;
     }
 
@@ -1075,8 +1078,77 @@ function sendCopyShortcut() {
       '/usr/bin/osascript',
       [
         '-e',
-        'tell application "System Events" to keystroke "c" using command down'
+        'tell application "System Events" to key code 8 using command down'
       ],
+      error => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      }
+    );
+  });
+}
+
+function readSelectedTextViaAccessibility() {
+  return new Promise((resolve, reject) => {
+    execFile(
+      '/usr/bin/osascript',
+      [
+        '-e',
+        'tell application "System Events"',
+        '-e',
+        'try',
+        '-e',
+        'set activeProcess to first application process whose frontmost is true',
+        '-e',
+        'set focusedElement to value of attribute "AXFocusedUIElement" of activeProcess',
+        '-e',
+        'return value of attribute "AXSelectedText" of focusedElement',
+        '-e',
+        'on error',
+        '-e',
+        'return ""',
+        '-e',
+        'end try',
+        '-e',
+        'end tell'
+      ],
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(stdout.replace(/\r?\n$/, ''));
+      }
+    );
+  });
+}
+
+function waitForShortcutRelease() {
+  return new Promise((resolve, reject) => {
+    const script = `
+      ObjC.import('CoreGraphics');
+      ObjC.import('Foundation');
+      const deadline = Date.now() + 5000;
+      const isPressed = () => {
+        const state = $.kCGEventSourceStateCombinedSessionState;
+        const flags = Number($.CGEventSourceFlagsState(state));
+        const hPressed = Number($.CGEventSourceKeyState(state, 4)) !== 0;
+        return (flags & 1572864) !== 0 || hPressed;
+      };
+      while (isPressed() && Date.now() < deadline) {
+        $.NSThread.sleepForTimeInterval(0.025);
+      }
+      if (isPressed()) {
+        throw new Error('Timed out waiting for shortcut release');
+      }
+    `;
+
+    execFile(
+      '/usr/bin/osascript',
+      ['-l', 'JavaScript', '-e', script],
       error => {
         if (error) {
           reject(error);
@@ -1100,9 +1172,15 @@ async function copySelectedText() {
     return null;
   }
 
+  const accessibilityText = await readSelectedTextViaAccessibility();
+  if (accessibilityText) {
+    clipboard.writeText(accessibilityText);
+    return accessibilityText;
+  }
+
   const previousText = clipboard.readText();
 
-  await delay(150);
+  await waitForShortcutRelease();
   clipboard.clear();
 
   try {
@@ -1133,6 +1211,11 @@ async function copySelectedText() {
 function registerShortcut() {
   globalShortcut.register('Command+Option+H', async () => {
     if (process.platform === 'darwin') {
+      if (isShortcutHandling) {
+        return;
+      }
+
+      isShortcutHandling = true;
       let selectedText;
 
       try {
@@ -1147,6 +1230,8 @@ function registerShortcut() {
           buttons: ['OK']
         });
         return;
+      } finally {
+        isShortcutHandling = false;
       }
 
       if (selectedText) {
