@@ -16,8 +16,20 @@ class FakeLLM:
 
 def test_convert_time_zones_builds_dated_prompt():
     llm = FakeLLM(
-        "- Larnaca: 16:00\n- Moscow: 16:00\n"
-        "- Berlin: 15:00\n- London: 14:00"
+        """
+        [
+          {
+            "source": "Berlin",
+            "source_time": "15:00",
+            "conversions": {
+              "London": "14:00",
+              "Moscow": "16:00",
+              "Berlin": "15:00",
+              "Larnaca": "16:00"
+            }
+          }
+        ]
+        """
     )
 
     result = asyncio.run(
@@ -30,8 +42,8 @@ def test_convert_time_zones_builds_dated_prompt():
 
     assert result == (
         "Larnaca: 16:00\n"
+        "Berlin:  <b>15:00</b>\n"
         "Moscow:  16:00\n"
-        "Berlin:  15:00\n"
         "London:  14:00"
     )
     system_prompt = llm.messages[0].content
@@ -58,4 +70,37 @@ def test_convert_time_zones_suppresses_non_time_response():
     )
 
     assert result == ""
+
+
+def test_convert_time_zones_includes_external_source():
+    llm = FakeLLM(
+        """
+        {
+          "source": "New York",
+          "source_time": "09:00",
+          "conversions": {
+            "Larnaca": "16:00",
+            "Berlin": "15:00",
+            "Moscow": "16:00",
+            "London": "14:00"
+          }
+        }
+        """
+    )
+
+    result = asyncio.run(
+        convert_time_zones(
+            text="9 AM in New York",
+            llm=llm,
+            current_date="2026-07-25"
+        )
+    )
+
+    assert result == (
+        "New York: <b>09:00</b>\n"
+        "Larnaca:  16:00\n"
+        "Berlin:   15:00\n"
+        "Moscow:   16:00\n"
+        "London:   14:00"
+    )
 
