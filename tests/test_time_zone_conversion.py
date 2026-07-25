@@ -16,7 +16,8 @@ class FakeLLM:
 
 def test_convert_time_zones_builds_dated_prompt():
     llm = FakeLLM(
-        "Larnaca: 16:00\nMoscow: 16:00\nBerlin: 15:00\nLondon: 14:00"
+        "- Larnaca: 16:00\n- Moscow: 16:00\n"
+        "- Berlin: 15:00\n- London: 14:00"
     )
 
     result = asyncio.run(
@@ -27,7 +28,12 @@ def test_convert_time_zones_builds_dated_prompt():
         )
     )
 
-    assert "Berlin: 15:00" in result
+    assert result == (
+        "Larnaca: 16:00\n"
+        "Moscow:  16:00\n"
+        "Berlin:  15:00\n"
+        "London:  14:00"
+    )
     system_prompt = llm.messages[0].content
     assert "2026-07-25" in system_prompt
     assert "Asia/Nicosia" in system_prompt
