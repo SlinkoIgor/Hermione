@@ -44,12 +44,80 @@ _TERMINAL_PUNCT = frozenset('.!?…')
 
 
 def _tokenize(text: str) -> list[str]:
-    return re.findall(r'\S+|\s+', text)
+    return re.findall(r"\w+(?:['’]\w+)*|[^\w\s]|\s+", text)
 
 
 def _normalize_for_diff(s: str) -> str:
     """Collapse typographic variants and case so trivial cosmetic changes are ignored."""
     return s.translate(_TYPOGRAPHIC_TABLE).lower()
+
+
+def _original_wording(tokens: list[str]) -> str:
+    word_indexes = [
+        index for index, token in enumerate(tokens)
+        if re.search(r"\w", token)
+    ]
+    if not word_indexes:
+        return ""
+    return "".join(
+        tokens[word_indexes[0]:word_indexes[-1] + 1]
+    ).strip()
+
+
+def _highlight_chunk(tokens: list[str]) -> str:
+    text = "".join(tokens)
+    if not text.strip():
+        return text
+    leading = text[:len(text) - len(text.lstrip())]
+    trailing = text[len(text.rstrip()):]
+    content_end = len(text) - len(trailing) if trailing else len(text)
+    content = text[len(leading):content_end]
+    return f"{leading}<b>{content}</b>{trailing}"
+
+
+def _merge_adjacent_changes(
+    opcodes,
+    corrected_tokens: list[str]
+):
+    merged = []
+    index = 0
+
+    while index < len(opcodes):
+        tag, i1, i2, j1, j2 = opcodes[index]
+        if tag == "equal":
+            merged.append((tag, i1, i2, j1, j2))
+            index += 1
+            continue
+
+        end_i2 = i2
+        end_j2 = j2
+        while index + 2 < len(opcodes):
+            equal_opcode = opcodes[index + 1]
+            next_opcode = opcodes[index + 2]
+            equal_tag, _, equal_i2, _, equal_j2 = equal_opcode
+            if equal_tag != "equal" or next_opcode[0] == "equal":
+                break
+            equal_text = "".join(
+                corrected_tokens[equal_opcode[3]:equal_opcode[4]]
+            )
+            if not equal_text.isspace():
+                break
+            end_i2 = next_opcode[2]
+            end_j2 = next_opcode[4]
+            index += 2
+
+        has_original = i1 != end_i2
+        has_corrected = j1 != end_j2
+        if has_original and has_corrected:
+            merged_tag = "replace"
+        elif has_corrected:
+            merged_tag = "insert"
+        else:
+            merged_tag = "delete"
+        merged.append((merged_tag, i1, end_i2, j1, end_j2))
+        index += 1
+
+    return merged
 
 
 def _apply_diff_highlights(original: str, corrected: str) -> str:
@@ -58,7 +126,10 @@ def _apply_diff_highlights(original: str, corrected: str) -> str:
     corr_tokens = _tokenize(corrected)
 
     matcher = SequenceMatcher(None, orig_tokens, corr_tokens, autojunk=False)
-    opcodes = list(matcher.get_opcodes())
+    opcodes = _merge_adjacent_changes(
+        list(matcher.get_opcodes()),
+        corr_tokens
+    )
     result = []
 
     for op_idx, (tag, i1, i2, j1, j2) in enumerate(opcodes):
@@ -81,11 +152,23 @@ def _apply_diff_highlights(original: str, corrected: str) -> str:
         if is_trivial:
             result.extend(corr_chunk)
         else:
-            for token in corr_chunk:
-                if token.strip():
-                    result.append(f'<b>{token}</b>')
-                else:
-                    result.append(token)
+            highlighted_chunk = _highlight_chunk(corr_chunk)
+            original_wording = _original_wording(orig_chunk)
+            if original_wording:
+                safe_wording = html.escape(original_wording)
+                corrected_text = "".join(corr_chunk)
+                separator = (
+                    ""
+                    if not highlighted_chunk.strip()
+                    or corrected_text[:1].isspace()
+                    else " "
+                )
+                result.append(
+                    '<span class="original-wording">'
+                    f'<s>{safe_wording}</s>{separator}'
+                    '</span>'
+                )
+            result.append(highlighted_chunk)
 
     return ''.join(result)
 

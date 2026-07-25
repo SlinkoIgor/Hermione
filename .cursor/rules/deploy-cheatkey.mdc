@@ -8,7 +8,7 @@ alwaysApply: false
 Project root: `/Users/Igor.Slinko/projects/hermione`
 Electron app: `electron-app/`
 
-Every build must be installed. Whenever `npm run build` is executed for any reason, always complete steps 3 and 4. Never leave a verification build only in `dist`.
+Every build must be installed and relaunched. Whenever `npm run build` is executed for any reason, always complete steps 3 through 5. Never leave a verification build only in `dist`, and never leave the old process running.
 
 ## Workflow
 
@@ -26,6 +26,8 @@ Output: `dist/mac-arm64/CheatKey.app`
 
 ### 3. Kill running CheatKey (if any)
 
+Always terminate the currently running app before replacing it.
+
 ```bash
 pgrep -x "CheatKey" && pkill -x "CheatKey" && sleep 1 || true
 ```
@@ -38,7 +40,18 @@ Always `rm -rf` first — `cp -r` merges files and leaves the old `app.asar` int
 rm -rf /Applications/CheatKey.app && cp -r /Users/Igor.Slinko/projects/hermione/electron-app/dist/mac-arm64/CheatKey.app /Applications/CheatKey.app
 ```
 
-### 5. Ask user to confirm commit
+### 5. Relaunch and verify
+
+Always launch the newly installed app and verify that it is running.
+
+```bash
+open /Applications/CheatKey.app
+sleep 2
+/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/CheatKey.app/Contents/Info.plist
+pgrep -x "CheatKey"
+```
+
+### 6. Ask user to confirm commit
 
 Ask: **"Можно закоммитить изменения?"**
 

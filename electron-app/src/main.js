@@ -354,7 +354,11 @@ function createPopupWindow(responseText, isLoading = false) {
                 const active = document.querySelector('.tab-content.active');
                 if (!active) return;
                 const { clipboard } = require('electron');
-                clipboard.writeText(active.innerText);
+                const cleanContent = active.cloneNode(true);
+                cleanContent.querySelectorAll('.original-wording').forEach(
+                  annotation => annotation.remove()
+                );
+                clipboard.writeText(cleanContent.innerText);
                 const btn = document.getElementById('copyBtn');
                 if (btn) {
                   btn.classList.add('copied');
@@ -837,7 +841,11 @@ function createPopupWindow(responseText, isLoading = false) {
               const active = document.querySelector('.tab-content.active');
               if (!active) return;
               const { clipboard } = require('electron');
-              clipboard.writeText(active.innerText);
+              const cleanContent = active.cloneNode(true);
+              cleanContent.querySelectorAll('.original-wording').forEach(
+                annotation => annotation.remove()
+              );
+              clipboard.writeText(cleanContent.innerText);
               const btn = document.getElementById('copyBtn');
               if (btn) {
                 btn.classList.add('copied');
