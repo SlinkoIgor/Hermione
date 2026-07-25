@@ -1,6 +1,6 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, clipboard, screen, Menu, dialog } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, clipboard, screen, Menu, dialog, systemPreferences } = require('electron');
 const path = require('path');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execFile } = require('child_process');
 const fs = require('fs');
 const fetch = require('node-fetch');
 const log = require('electron-log');
@@ -1065,11 +1065,89 @@ async function startPythonServer() {
   });
 }
 
+function delay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function sendCopyShortcut() {
+  return new Promise((resolve, reject) => {
+    execFile(
+      '/usr/bin/osascript',
+      [
+        '-e',
+        'tell application "System Events" to keystroke "c" using command down'
+      ],
+      error => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      }
+    );
+  });
+}
+
+async function copySelectedText() {
+  if (!systemPreferences.isTrustedAccessibilityClient(true)) {
+    await dialog.showMessageBox({
+      type: 'warning',
+      title: 'Accessibility Permission Required',
+      message: 'CheatKey needs Accessibility access to copy selected text.',
+      detail: 'Enable CheatKey in System Settings → Privacy & Security → Accessibility, then try again.',
+      buttons: ['OK']
+    });
+    return null;
+  }
+
+  const previousText = clipboard.readText();
+
+  await delay(150);
+  clipboard.clear();
+
+  try {
+    await sendCopyShortcut();
+  } catch (error) {
+    if (previousText) {
+      clipboard.writeText(previousText);
+    }
+    throw error;
+  }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const selectedText = clipboard.readText();
+    if (selectedText) {
+      return selectedText;
+    }
+    await delay(25);
+  }
+
+  if (previousText) {
+    clipboard.writeText(previousText);
+  }
+
+  return null;
+}
+
 // Handle the global shortcut
 function registerShortcut() {
-  globalShortcut.register('Command+Option+H', () => {
+  globalShortcut.register('Command+Option+H', async () => {
     if (process.platform === 'darwin') {
-      const selectedText = clipboard.readText();
+      let selectedText;
+
+      try {
+        selectedText = await copySelectedText();
+      } catch (error) {
+        log.error(`Failed to copy selected text: ${error}`);
+        await dialog.showMessageBox({
+          type: 'error',
+          title: 'Unable to Copy Selected Text',
+          message: 'CheatKey could not copy the selected text.',
+          detail: 'Check that CheatKey is enabled in System Settings → Privacy & Security → Accessibility.',
+          buttons: ['OK']
+        });
+        return;
+      }
 
       if (selectedText) {
         let accumulatedOutput = {};

@@ -1,6 +1,6 @@
 {
   "name": "cheatkey-electron",
-  "version": "1.0.41",
+  "version": "1.0.42",
   "description": "Electron app for CheatKey API",
   "main": "src/main.js",
   "scripts": {
@@ -29,7 +29,10 @@
       "category": "public.app-category.productivity",
       "target": "dmg",
       "icon": "src/assets/icon.png",
-      "identity": null
+      "identity": null,
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "CheatKey uses System Events to copy selected text when you press Command-Option-H."
+      }
     },
     "files": [
       "src/**/*",
