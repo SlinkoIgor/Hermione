@@ -1147,13 +1147,56 @@ function delay(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-function sendCopyShortcut() {
+function readFrontmostApplication() {
+  return new Promise((resolve, reject) => {
+    execFile(
+      '/usr/bin/osascript',
+      [
+        '-l',
+        'JavaScript',
+        '-e',
+        'ObjC.import("AppKit"); const app = $.NSWorkspace.sharedWorkspace.frontmostApplication; String(app.processIdentifier) + "|" + ObjC.unwrap(app.localizedName)'
+      ],
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        const separatorIndex = stdout.indexOf('|');
+        const processId = Number.parseInt(
+          stdout.slice(0, separatorIndex),
+          10
+        );
+        if (separatorIndex < 1 || !Number.isInteger(processId)) {
+          reject(new Error('Unable to identify frontmost application'));
+          return;
+        }
+        resolve({
+          processId,
+          name: stdout.slice(separatorIndex + 1).trim()
+        });
+      }
+    );
+  });
+}
+
+function sendCopyShortcut(processId) {
   return new Promise((resolve, reject) => {
     execFile(
       '/usr/bin/osascript',
       [
         '-e',
-        'tell application "System Events" to key code 8 using command down'
+        'tell application "System Events"',
+        '-e',
+        `set targetProcess to first application process whose unix id is ${processId}`,
+        '-e',
+        'set frontmost of targetProcess to true',
+        '-e',
+        'delay 0.05',
+        '-e',
+        'key code 8 using command down',
+        '-e',
+        'end tell'
       ],
       error => {
         if (error) {
@@ -1192,7 +1235,7 @@ function readPasteboardChangeCount() {
   });
 }
 
-function readSelectedTextViaAccessibility() {
+function readSelectedTextViaAccessibility(processId) {
   return new Promise((resolve, reject) => {
     execFile(
       '/usr/bin/osascript',
@@ -1200,23 +1243,31 @@ function readSelectedTextViaAccessibility() {
         '-e',
         'tell application "System Events"',
         '-e',
+        'set selectionSupported to false',
+        '-e',
+        'repeat 3 times',
+        '-e',
         'try',
         '-e',
-        'set activeProcess to first application process whose frontmost is true',
+        `set activeProcess to first application process whose unix id is ${processId}`,
         '-e',
         'set focusedElement to value of attribute "AXFocusedUIElement" of activeProcess',
         '-e',
         'set selectedText to value of attribute "AXSelectedText" of focusedElement',
         '-e',
-        'if selectedText is missing value then return "__CHEATKEY_NO_SELECTION__"',
+        'set selectionSupported to true',
         '-e',
-        'return "__CHEATKEY_SELECTED__" & selectedText',
-        '-e',
-        'on error',
-        '-e',
-        'return "__CHEATKEY_UNSUPPORTED__"',
+        'if selectedText is not missing value and selectedText is not "" then return "__CHEATKEY_SELECTED__" & selectedText',
         '-e',
         'end try',
+        '-e',
+        'delay 0.04',
+        '-e',
+        'end repeat',
+        '-e',
+        'if selectionSupported then return "__CHEATKEY_NO_SELECTION__"',
+        '-e',
+        'return "__CHEATKEY_UNSUPPORTED__"',
         '-e',
         'end tell'
       ],
@@ -1289,30 +1340,49 @@ async function copySelectedText() {
     return null;
   }
 
-  const accessibilitySelection = await readSelectedTextViaAccessibility();
+  const targetApplication = await readFrontmostApplication();
+  log.info(
+    `Selection target captured, app=${targetApplication.name}, pid=${targetApplication.processId}`
+  );
+  const accessibilitySelection = await readSelectedTextViaAccessibility(
+    targetApplication.processId
+  );
   if (accessibilitySelection.status === 'selected') {
-    if (!accessibilitySelection.text.trim()) {
+    if (accessibilitySelection.text.trim()) {
+      log.info(
+        `Selection captured through Accessibility, length=${accessibilitySelection.text.length}`
+      );
+      clipboard.writeText(accessibilitySelection.text);
+      return accessibilitySelection.text;
+    }
+  }
+
+  log.info(
+    `Accessibility selection unavailable, status=${accessibilitySelection.status}`
+  );
+  await waitForShortcutRelease();
+  let previousChangeCount = await readPasteboardChangeCount();
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await sendCopyShortcut(targetApplication.processId);
+    await delay(75);
+    const currentChangeCount = await readPasteboardChangeCount();
+    if (currentChangeCount !== previousChangeCount) {
+      const copiedText = clipboard.readText();
+      if (copiedText.trim()) {
+        log.info(
+          `Selection captured through clipboard, length=${copiedText.length}, attempt=${attempt + 1}`
+        );
+        return copiedText;
+      }
       return null;
     }
-    clipboard.writeText(accessibilitySelection.text);
-    return accessibilitySelection.text;
-  }
-  if (accessibilitySelection.status === 'none') {
-    return null;
+    previousChangeCount = currentChangeCount;
+    await delay(75);
   }
 
-  await waitForShortcutRelease();
-  const previousChangeCount = await readPasteboardChangeCount();
-  await sendCopyShortcut();
-  await delay(50);
-  const currentChangeCount = await readPasteboardChangeCount();
-
-  if (currentChangeCount === previousChangeCount) {
-    return null;
-  }
-
-  const copiedText = clipboard.readText();
-  return copiedText.trim() ? copiedText : null;
+  log.info('No selected text detected after clipboard fallback');
+  return null;
 }
 
 function createTextInputWindow() {
