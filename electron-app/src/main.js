@@ -1,6 +1,6 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, clipboard, screen, Menu, dialog, systemPreferences } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, clipboard, screen, Menu, dialog } = require('electron');
 const path = require('path');
-const { spawn, exec, execFile } = require('child_process');
+const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const fetch = require('node-fetch');
 const log = require('electron-log');
@@ -20,7 +20,6 @@ let lastPopupBounds = {
 let lastActiveTab = 0;
 let hasShownPopupForCurrentRequest = false;
 let userClosedPopupForCurrentRequest = false;
-let isShortcutHandling = false;
 let handleTextRequest = null;
 let activeRequestToken = 0;
 let activeRequestController = null;
@@ -1143,249 +1142,15 @@ async function startPythonServer() {
   });
 }
 
-function delay(milliseconds) {
-  return new Promise(resolve => setTimeout(resolve, milliseconds));
-}
-
-function readFrontmostApplication() {
-  return new Promise((resolve, reject) => {
-    execFile(
-      '/usr/bin/osascript',
-      [
-        '-l',
-        'JavaScript',
-        '-e',
-        'ObjC.import("AppKit"); const app = $.NSWorkspace.sharedWorkspace.frontmostApplication; String(app.processIdentifier) + "|" + ObjC.unwrap(app.localizedName)'
-      ],
-      (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        const separatorIndex = stdout.indexOf('|');
-        const processId = Number.parseInt(
-          stdout.slice(0, separatorIndex),
-          10
-        );
-        if (separatorIndex < 1 || !Number.isInteger(processId)) {
-          reject(new Error('Unable to identify frontmost application'));
-          return;
-        }
-        resolve({
-          processId,
-          name: stdout.slice(separatorIndex + 1).trim()
-        });
-      }
-    );
-  });
-}
-
-function sendCopyShortcut(processId) {
-  return new Promise((resolve, reject) => {
-    execFile(
-      '/usr/bin/osascript',
-      [
-        '-e',
-        'tell application "System Events"',
-        '-e',
-        `set targetProcess to first application process whose unix id is ${processId}`,
-        '-e',
-        'set frontmost of targetProcess to true',
-        '-e',
-        'delay 0.05',
-        '-e',
-        'key code 8 using command down',
-        '-e',
-        'end tell'
-      ],
-      error => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      }
-    );
-  });
-}
-
-function readPasteboardChangeCount() {
-  return new Promise((resolve, reject) => {
-    execFile(
-      '/usr/bin/osascript',
-      [
-        '-l',
-        'JavaScript',
-        '-e',
-        'ObjC.import("AppKit"); Number($.NSPasteboard.generalPasteboard.changeCount)'
-      ],
-      (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        const changeCount = Number.parseInt(stdout.trim(), 10);
-        if (!Number.isInteger(changeCount)) {
-          reject(new Error('Unable to read pasteboard change count'));
-          return;
-        }
-        resolve(changeCount);
-      }
-    );
-  });
-}
-
-function readSelectedTextViaAccessibility(processId) {
-  return new Promise((resolve, reject) => {
-    execFile(
-      '/usr/bin/osascript',
-      [
-        '-e',
-        'tell application "System Events"',
-        '-e',
-        'set selectionSupported to false',
-        '-e',
-        'repeat 3 times',
-        '-e',
-        'try',
-        '-e',
-        `set activeProcess to first application process whose unix id is ${processId}`,
-        '-e',
-        'set focusedElement to value of attribute "AXFocusedUIElement" of activeProcess',
-        '-e',
-        'set selectedText to value of attribute "AXSelectedText" of focusedElement',
-        '-e',
-        'set selectionSupported to true',
-        '-e',
-        'if selectedText is not missing value and selectedText is not "" then return "__CHEATKEY_SELECTED__" & selectedText',
-        '-e',
-        'end try',
-        '-e',
-        'delay 0.04',
-        '-e',
-        'end repeat',
-        '-e',
-        'if selectionSupported then return "__CHEATKEY_NO_SELECTION__"',
-        '-e',
-        'return "__CHEATKEY_UNSUPPORTED__"',
-        '-e',
-        'end tell'
-      ],
-      (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        const result = stdout.replace(/\r?\n$/, '');
-        if (result.startsWith('__CHEATKEY_SELECTED__')) {
-          resolve({
-            status: 'selected',
-            text: result.slice('__CHEATKEY_SELECTED__'.length)
-          });
-          return;
-        }
-        if (result === '__CHEATKEY_NO_SELECTION__') {
-          resolve({ status: 'none', text: '' });
-          return;
-        }
-        resolve({ status: 'unsupported', text: '' });
-      }
-    );
-  });
-}
-
-function waitForShortcutRelease() {
-  return new Promise((resolve, reject) => {
-    const script = `
-      ObjC.import('CoreGraphics');
-      ObjC.import('Foundation');
-      const deadline = Date.now() + 5000;
-      const isPressed = () => {
-        const state = $.kCGEventSourceStateCombinedSessionState;
-        const flags = Number($.CGEventSourceFlagsState(state));
-        const hPressed = Number($.CGEventSourceKeyState(state, 4)) !== 0;
-        return (flags & 1572864) !== 0 || hPressed;
-      };
-      while (isPressed() && Date.now() < deadline) {
-        $.NSThread.sleepForTimeInterval(0.025);
-      }
-      if (isPressed()) {
-        throw new Error('Timed out waiting for shortcut release');
-      }
-    `;
-
-    execFile(
-      '/usr/bin/osascript',
-      ['-l', 'JavaScript', '-e', script],
-      error => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      }
-    );
-  });
-}
-
-async function copySelectedText() {
-  if (!systemPreferences.isTrustedAccessibilityClient(true)) {
-    await dialog.showMessageBox({
-      type: 'warning',
-      title: 'Accessibility Permission Required',
-      message: 'CheatKey needs Accessibility access to copy selected text.',
-      detail: 'Enable CheatKey in System Settings → Privacy & Security → Accessibility, then try again.',
-      buttons: ['OK']
-    });
-    return null;
-  }
-
-  const targetApplication = await readFrontmostApplication();
-  log.info(
-    `Selection target captured, app=${targetApplication.name}, pid=${targetApplication.processId}`
-  );
-  const accessibilitySelection = await readSelectedTextViaAccessibility(
-    targetApplication.processId
-  );
-  if (accessibilitySelection.status === 'selected') {
-    if (accessibilitySelection.text.trim()) {
-      log.info(
-        `Selection captured through Accessibility, length=${accessibilitySelection.text.length}`
-      );
-      clipboard.writeText(accessibilitySelection.text);
-      return accessibilitySelection.text;
-    }
-  }
-
-  log.info(
-    `Accessibility selection unavailable, status=${accessibilitySelection.status}`
-  );
-  await waitForShortcutRelease();
-  let previousChangeCount = await readPasteboardChangeCount();
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await sendCopyShortcut(targetApplication.processId);
-    await delay(75);
-    const currentChangeCount = await readPasteboardChangeCount();
-    if (currentChangeCount !== previousChangeCount) {
-      const copiedText = clipboard.readText();
-      if (copiedText.trim()) {
-        log.info(
-          `Selection captured through clipboard, length=${copiedText.length}, attempt=${attempt + 1}`
-        );
-        return copiedText;
-      }
-      return null;
-    }
-    previousChangeCount = currentChangeCount;
-    await delay(75);
-  }
-
-  log.info('No selected text detected after clipboard fallback');
-  return null;
-}
-
 function createTextInputWindow() {
+  // The shortcut can fire while a request is streaming, so drop that request
+  // to keep late chunks from overwriting the input window.
+  activeRequestToken += 1;
+  if (activeRequestController) {
+    activeRequestController.abort();
+    activeRequestController = null;
+  }
+
   if (popupWindow && !popupWindow.isDestroyed()) {
     popupWindow.destroy();
   }
@@ -1437,11 +1202,6 @@ function createTextInputWindow() {
 function registerShortcut() {
   handleTextRequest = async (providedText = null) => {
     if (process.platform === 'darwin') {
-      if (isShortcutHandling) {
-        return;
-      }
-
-      isShortcutHandling = true;
       const requestToken = ++activeRequestToken;
       if (activeRequestController) {
         activeRequestController.abort();
@@ -1450,25 +1210,9 @@ function registerShortcut() {
       const isManualInput = (
         typeof providedText === 'string' && Boolean(providedText.trim())
       );
-      let selectedText;
+      const requestText = isManualInput ? providedText : clipboard.readText();
 
-      try {
-        selectedText = isManualInput ? providedText : await copySelectedText();
-      } catch (error) {
-        log.error(`Failed to copy selected text: ${error}`);
-        await dialog.showMessageBox({
-          type: 'error',
-          title: 'Unable to Copy Selected Text',
-          message: 'CheatKey could not copy the selected text.',
-          detail: 'Check that CheatKey is enabled in System Settings → Privacy & Security → Accessibility.',
-          buttons: ['OK']
-        });
-        return;
-      } finally {
-        isShortcutHandling = false;
-      }
-
-      if (selectedText) {
+      if (requestText.trim()) {
         let accumulatedOutput = {};
         let allComplete = false;
 
@@ -1550,7 +1294,7 @@ function registerShortcut() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            content: selectedText,
+            content: requestText,
             provider_mode: PROVIDER_MODE
           }),
           signal: requestController.signal
@@ -1709,6 +1453,10 @@ function registerShortcut() {
 
   globalShortcut.register('Command+Option+H', () => {
     handleTextRequest();
+  });
+
+  globalShortcut.register('Command+Option+G', () => {
+    createTextInputWindow();
   });
 }
 

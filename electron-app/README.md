@@ -1,13 +1,14 @@
 # Hermione Electron App
 
-This Electron application provides a convenient way to interact with the Hermione API. It runs in the background and allows you to quickly send selected text to the API using a keyboard shortcut.
+This Electron application provides a convenient way to interact with the Hermione API. It runs in the background and allows you to quickly send the clipboard text to the API using a keyboard shortcut.
 
 ## Features
 
 - Runs on computer startup
 - Shows an icon in the menu bar
 - Automatically starts the Hermione API server
-- Allows sending selected text to the API using Option+H shortcut
+- Allows sending the clipboard text to the API using the Cmd+Option+H shortcut
+- Allows typing text manually using the Cmd+Option+G shortcut
 
 ## Prerequisites
 
@@ -59,9 +60,10 @@ npm start
 
 1. Launch the application
 2. The app will start automatically when your computer boots up
-3. Select any text in any application
-4. Press Cmd+Option+H to send the selected text to the Hermione API
-5. The response will be processed by the API
+3. Copy any text in any application
+4. Press Cmd+Option+H to send the clipboard text to the Hermione API
+5. Alternatively, press Cmd+Option+G to type the text manually and submit it with Enter
+6. The response will be processed by the API
 
 ## Requirements
 
