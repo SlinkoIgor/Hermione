@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 LITELLM_HOST = os.getenv("LITELLM_HOST", "https://api.litellm.ai")
 
+REASONING_EFFORT = "none"
+
 def get_litellm_client() -> openai.OpenAI:
     api_key = os.environ.get("LITELLM_API_KEY")
     if not api_key:
@@ -16,7 +18,7 @@ def get_litellm_client() -> openai.OpenAI:
 def get_openai_llm(model_name: str, temperature: float = 1, thinking_budget: int = None) -> ChatOpenAI:
     kwargs = {}
     if "gpt" in model_name.lower():
-        kwargs["model_kwargs"] = {"reasoning_effort": "low"}
+        kwargs["model_kwargs"] = {"reasoning_effort": REASONING_EFFORT}
     return ChatOpenAI(model=model_name, temperature=temperature, **kwargs)
 
 def get_litellm_llm(model_name: str, temperature: float = 1, thinking_budget: int = None) -> ChatOpenAI:
@@ -32,7 +34,7 @@ def get_litellm_llm(model_name: str, temperature: float = 1, thinking_budget: in
     }
 
     if "gemini" in model_name.lower() or "gpt" in model_name.lower():
-        kwargs["model_kwargs"] = {"reasoning_effort": "low"}
+        kwargs["model_kwargs"] = {"reasoning_effort": REASONING_EFFORT}
 
     return ChatOpenAI(**kwargs)
 

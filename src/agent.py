@@ -14,7 +14,7 @@ from src.tools.llm_tools import (
     message_content_to_str,
     _label_to_language_bucket,
 )
-from src.llm_providers import get_openai_llm, get_litellm_llm
+from src.llm_providers import get_openai_llm, get_litellm_llm, REASONING_EFFORT
 from src.agent_config import get_agent_config
 from textwrap import dedent
 from typing import Dict, Any, List, Literal, Union
@@ -185,7 +185,9 @@ class AgentBuilder:
             return get_openai_llm(model_name, self.temperature, self.thinking_budget)
 
     def _get_model_info(self, use_fast: bool = False) -> str:
-        reasoning_effort = "low" if self.thinking_budget is not None else "None"
+        reasoning_effort = REASONING_EFFORT if (
+            "gpt" in self.base_model[0].lower() or "gemini" in self.base_model[0].lower()
+        ) else "None"
         return f"provider={self.provider}, models={self.base_model}, reasoning_effort={reasoning_effort}"
 
     async def _task_router_node(self, state: AgentState) -> Dict[str, Any]:

@@ -19,14 +19,12 @@ main_translation
 Contexts:
 • "example sentence in the source language" → translation in {target}
 • "another example sentence" → translation in {target}
-• (provide 3-4 example sentences total, each on its own line; no context labels or prefixes)
 
 Synonyms: synonym1 → translation | synonym2 → translation | synonym3 → translation | synonym4 → translation
 
-Antonyms: antonym1 → translation | antonym2 → translation | antonym3 → translation
-
-Write synonyms and antonyms in the source language of the input, each followed by its translation in {target}.
-Separate synonym and antonym pairs with | (space before and after each |).
+Write synonyms in the source language of the input, each followed by its translation in {target}.
+Provide exactly 2 context example sentences, each on its own line; no context labels or prefixes.
+Separate synonym pairs with | (space before and after each |).
 Always use spaces around →.
 For full sentences, return only the translated text with no extra sections."""
 
