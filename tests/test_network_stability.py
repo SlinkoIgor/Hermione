@@ -81,7 +81,7 @@ def get_http_config(provider: str):
     return {
         "url": f"{LITELLM_HOST}/chat/completions",
         "headers": {"Authorization": f"Bearer {LITELLM_API_KEY}", "Content-Type": "application/json"},
-        "model": "gemini-3-flash-preview",
+        "model": "vertex_ai/gemini-3.8-flash",
     }
 
 
@@ -122,7 +122,7 @@ async def run_agent_test(provider: str, rounds: int, stats: Stats):
     agent_provider = "litellm" if provider == "google" else provider
     config = get_agent_config(provider=agent_provider, thinking_budget=1000)
     if provider == "google":
-        config["base_model"] = "gemini-3-flash-preview"
+        config["base_model"] = "vertex_ai/gemini-3.8-flash"
     agent = AgentBuilder(native_currency="EUR", provider=agent_provider, **config).build()
 
     for i in range(rounds):

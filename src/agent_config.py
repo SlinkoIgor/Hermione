@@ -3,11 +3,11 @@ from typing import Literal, Optional
 
 MODEL_CONFIGS = {
     "openai": {
-        "base_model": "gpt-5.6-sol",
+        "base_model": "gpt-6.1-sol",
         "thinking_budget": None,
     },
     "litellm": {
-        "base_model": "gemini-3-flash-preview",
+        "base_model": "vertex_ai/gemini-3.8-flash",
         "thinking_budget": None,
     }
 }

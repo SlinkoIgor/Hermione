@@ -168,7 +168,7 @@ async def check_litellm_availability() -> bool:
                 # Try a lighter endpoint first if available, else stick to existing check but faster timeout
                 headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
                 test_payload = {
-                    "model": "gemini-3-flash-preview",
+                    "model": "vertex_ai/gemini-3.8-flash",
                     "messages": [{"role": "user", "content": "hi"}],
                     "max_tokens": 1
                 }

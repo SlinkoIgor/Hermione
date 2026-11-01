@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 LITELLM_HOST = os.getenv("LITELLM_HOST", "https://api.litellm.ai")
 
-REASONING_EFFORT = "none"
+REASONING_EFFORT = "low"
 
 def get_litellm_client() -> openai.OpenAI:
     api_key = os.environ.get("LITELLM_API_KEY")
