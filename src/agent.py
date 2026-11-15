@@ -22,8 +22,46 @@ from dataclasses import dataclass, field
 import logging
 import asyncio
 import re
+import time
 
 logger = logging.getLogger(__name__)
+
+PARTIAL_EMIT_INTERVAL_SECONDS = 0.05
+INTERRUPTED_GENERATION_NOTE = "Generation was interrupted, the text above is incomplete."
+
+STREAMED_ROUTE_OUTPUT_KEYS = {
+    "text_fluent_translation_node": "fluent_translation",
+    "text_fix_node": "fixed",
+    "text_summarization_node": "tldr",
+    "text_reformulation_node": "reformulation",
+    "text_polish_node": "polished",
+    "text_enrichment_node": "enrichment",
+    "emoji_generation_node": "emoji",
+}
+
+
+class PartialEmitter:
+    def __init__(self, queue: asyncio.Queue, output_key: str, tag: str, model_name: str):
+        self.queue = queue
+        self.output_key = output_key
+        self.tag = tag
+        self.model_name = model_name
+        self.text = ""
+        self._last_emit = 0.0
+
+    def __call__(self, text: str):
+        self.text = text
+        now = time.monotonic()
+        if now - self._last_emit < PARTIAL_EMIT_INTERVAL_SECONDS:
+            return
+        self._last_emit = now
+        self.queue.put_nowait({
+            "output_key": self.output_key,
+            "value": text,
+            "tag": self.tag,
+            "model": self.model_name,
+            "partial": True,
+        })
 
 _MATH_OPERATOR_RE = re.compile(r'[+\-*/^=<>%]|\b(?:log|log10|log2|ln|sin|cos|tan|sqrt|sum|prod|exp)\b', re.IGNORECASE)
 
@@ -257,7 +295,13 @@ class AgentBuilder:
         )
         return {"out_translation": translated_text}
 
-    async def _text_fluent_translation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+    async def _text_fluent_translation_node(
+        self,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str = None,
+        on_partial=None,
+    ) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_fluent_translation_node: {model_info}")
         translated_text = await fluent_translate_text(
@@ -267,61 +311,104 @@ class AgentBuilder:
             is_native_language=state.is_native_language,
             query_language=state.query_language,
             llm=llm,
+            on_partial=on_partial,
         )
         return {"out_fluent_translation": translated_text}
 
-    async def _text_fix_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+    async def _text_fix_node(
+        self,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str = None,
+        on_partial=None,
+    ) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_fix_node: {model_info}")
         fixed_text = await fix_text(
             text=state.messages[0].content,
-            llm=llm
+            llm=llm,
+            on_partial=on_partial,
         )
         return {"out_fixed": fixed_text}
 
-    async def _text_summarization_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+    async def _text_summarization_node(
+        self,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str = None,
+        on_partial=None,
+    ) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_summarization_node: {model_info}")
         tldr_text = await text_summarization(
             text=state.messages[0].content,
             native_language=self.native_language,
-            llm=llm
+            llm=llm,
+            on_partial=on_partial,
         )
         return {"out_tldr": tldr_text}
 
-    async def _text_reformulation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+    async def _text_reformulation_node(
+        self,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str = None,
+        on_partial=None,
+    ) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_reformulation_node: {model_info}")
         reformulated_text = await text_reformulation(
             text=state.messages[0].content,
-            llm=llm
+            llm=llm,
+            on_partial=on_partial,
         )
         return {"out_reformulation": reformulated_text}
 
-    async def _text_polish_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+    async def _text_polish_node(
+        self,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str = None,
+        on_partial=None,
+    ) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_polish_node: {model_info}")
         polished = await polish_text(
             text=state.messages[0].content,
-            llm=llm
+            llm=llm,
+            on_partial=on_partial,
         )
         return {"out_polished": polished}
 
-    async def _text_enrichment_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+    async def _text_enrichment_node(
+        self,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str = None,
+        on_partial=None,
+    ) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] text_enrichment_node: {model_info}")
         enriched_text = await text_enrichment(
             text=state.messages[0].content,
-            llm=llm
+            llm=llm,
+            on_partial=on_partial,
         )
         return {"out_enrichment": enriched_text}
 
-    async def _emoji_generation_node(self, state: AgentState, llm: ChatOpenAI, model_name: str = None) -> Dict[str, Any]:
+    async def _emoji_generation_node(
+        self,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str = None,
+        on_partial=None,
+    ) -> Dict[str, Any]:
         model_info = f"provider={self.provider}, model={model_name or 'unknown'}"
         logger.info(f"[MODEL_INFO] emoji_generation_node: {model_info}")
         emoji_text = await generate_emoji(
             text=state.messages[0].content,
-            llm=llm
+            llm=llm,
+            on_partial=on_partial,
         )
         return {"out_emoji": emoji_text}
 
@@ -360,6 +447,58 @@ class AgentBuilder:
             return "[o]"
         return ""
 
+    def _create_node_coroutine(
+        self,
+        route: str,
+        state: AgentState,
+        llm: ChatOpenAI,
+        model_name: str,
+        on_partial=None,
+    ):
+        if route == "math_formula_calculation_node":
+            return self._math_formula_calculation_node(state)
+        if route == "time_zone_conversion_node":
+            return self._time_zone_conversion_node(state, llm, model_name)
+        node = getattr(self, f"_{route}", None)
+        if route not in STREAMED_ROUTE_OUTPUT_KEYS or node is None:
+            return None
+        return node(state, llm, model_name, on_partial=on_partial)
+
+    async def _emit_node_events(
+        self,
+        coroutine,
+        queue: asyncio.Queue,
+        tag: str,
+        model_name: str,
+        emitter: "PartialEmitter" = None,
+    ):
+        try:
+            result = await coroutine
+            for key, value in result.items():
+                if key.startswith("out_"):
+                    queue.put_nowait({
+                        "output_key": key[4:],
+                        "value": value,
+                        "tag": tag,
+                        "model": model_name,
+                        "partial": False,
+                    })
+        except asyncio.CancelledError:
+            logger.info("Task was cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Task failed: {e}", exc_info=True)
+            if emitter is not None and emitter.text:
+                queue.put_nowait({
+                    "output_key": emitter.output_key,
+                    "value": f"{emitter.text}\n\n⚠️ {INTERRUPTED_GENERATION_NOTE}",
+                    "tag": tag,
+                    "model": model_name,
+                    "partial": False,
+                })
+        finally:
+            queue.put_nowait(None)
+
     async def _run_agent_streaming(self, state: AgentState, cancellation_event: asyncio.Event = None):
         if cancellation_event and cancellation_event.is_set():
             logger.info("Request cancelled before routing")
@@ -377,7 +516,8 @@ class AgentBuilder:
                 "output_key": "existent",
                 "value": state.existent,
                 "tag": "",
-                "model": "router"
+                "model": "router",
+                "partial": False,
             }
 
         routes = self._get_routes(state)
@@ -389,87 +529,40 @@ class AgentBuilder:
             model_names = [model_names[0]] if isinstance(model_names, list) else [model_names]
 
         num_models = len(llms)
+        queue = asyncio.Queue()
         tasks_list = []
-        metadata_list = []
 
         for route in routes:
             for i, llm in enumerate(llms):
                 model_name = model_names[i] if i < len(model_names) else "unknown"
-                task = None
+                tag = self._get_tag_for_model(model_name, num_models)
+                emitter = None
+                if route in STREAMED_ROUTE_OUTPUT_KEYS:
+                    emitter = PartialEmitter(
+                        queue, STREAMED_ROUTE_OUTPUT_KEYS[route], tag, model_name
+                    )
+                coroutine = self._create_node_coroutine(route, state, llm, model_name, emitter)
+                if coroutine is None:
+                    continue
+                tasks_list.append(asyncio.create_task(
+                    self._emit_node_events(coroutine, queue, tag, model_name, emitter)
+                ))
 
-                if route == "text_fluent_translation_node":
-                    task = asyncio.create_task(self._text_fluent_translation_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_fluent_translation"}
-                elif route == "text_fix_node":
-                    task = asyncio.create_task(self._text_fix_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_fixed"}
-                elif route == "text_summarization_node":
-                    task = asyncio.create_task(self._text_summarization_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_tldr"}
-                elif route == "text_reformulation_node":
-                    task = asyncio.create_task(self._text_reformulation_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_reformulation"}
-                elif route == "text_polish_node":
-                    task = asyncio.create_task(self._text_polish_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_polished"}
-                elif route == "text_enrichment_node":
-                    task = asyncio.create_task(self._text_enrichment_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_enrichment"}
-                elif route == "emoji_generation_node":
-                    task = asyncio.create_task(self._emoji_generation_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_emoji"}
-                elif route == "time_zone_conversion_node":
-                    task = asyncio.create_task(self._time_zone_conversion_node(state, llm, model_name))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_tz_conversion"}
-                elif route == "math_formula_calculation_node":
-                    task = asyncio.create_task(self._math_formula_calculation_node(state))
-                    metadata = {"route": route, "model": model_name, "output_key": "out_math_result"}
-
-                if task:
-                    tasks_list.append(task)
-                    metadata_list.append(metadata)
-
-        if tasks_list:
-            pending = set(tasks_list)
-            while pending:
+        running = len(tasks_list)
+        try:
+            while running:
+                event = await queue.get()
                 if cancellation_event and cancellation_event.is_set():
                     logger.info("Request cancelled during task processing, cancelling all pending tasks")
-                    for task in pending:
-                        task.cancel()
                     return
-
-                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-
-                for completed_task in done:
-                    if cancellation_event and cancellation_event.is_set():
-                        logger.info("Request cancelled, stopping result processing")
-                        for task in pending:
-                            task.cancel()
-                        return
-
-                    try:
-                        result = await completed_task
-                        task_index = tasks_list.index(completed_task)
-                        metadata = metadata_list[task_index]
-
-                        output_key = metadata["output_key"]
-                        model_name = metadata["model"]
-                        tag = self._get_tag_for_model(model_name, num_models)
-
-                        for key, value in result.items():
-                            if key.startswith("out_"):
-                                yield {
-                                    "output_key": key[4:],
-                                    "value": value,
-                                    "tag": tag,
-                                    "model": model_name
-                                }
-                    except asyncio.CancelledError:
-                        logger.info("Task was cancelled")
-                        continue
-                    except Exception as e:
-                        logger.error(f"Task failed: {e}", exc_info=True)
-                        continue
+                if event is None:
+                    running -= 1
+                    continue
+                yield event
+        finally:
+            for task in tasks_list:
+                if not task.done():
+                    task.cancel()
 
     async def _run_agent(self, state: AgentState):
         result = await self._task_router_node(state)

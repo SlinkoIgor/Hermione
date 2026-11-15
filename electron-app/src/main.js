@@ -64,6 +64,28 @@ function createWindow() {
 }
 
 // Create a popup window near the cursor
+function upsertOutputItem(accumulatedOutput, data, elapsedMs) {
+  if (!accumulatedOutput[data.output_key]) {
+    accumulatedOutput[data.output_key] = [];
+  }
+  const items = accumulatedOutput[data.output_key];
+  const item = {
+    value: data.value,
+    tag: data.tag,
+    model: data.model,
+    provider: data.provider,
+    elapsed: elapsedMs
+  };
+  const index = items.findIndex(
+    existing => existing.model === data.model && existing.provider === data.provider
+  );
+  if (index === -1) {
+    items.push(item);
+  } else {
+    items[index] = item;
+  }
+}
+
 function createPopupWindow(responseText, isLoading = false) {
   // If user closed the popup for this request, don't create/show it again
   if (userClosedPopupForCurrentRequest) {
@@ -419,7 +441,8 @@ function createPopupWindow(responseText, isLoading = false) {
                     if (existingTab) {
                       const tabIndex = existingTab.getAttribute('data-tab');
                       const contentDiv = document.getElementById('tab-' + tabIndex);
-                      if (contentDiv) {
+                      if (contentDiv && contentDiv.dataset.rawValue !== itemValue) {
+                        contentDiv.dataset.rawValue = itemValue;
                         contentDiv.innerHTML = itemValue;
                       }
                       return;
@@ -444,6 +467,7 @@ function createPopupWindow(responseText, isLoading = false) {
                     newContent.innerHTML = key === 'error'
                       ? '<span class="error-text">' + itemValue + '</span>'
                       : itemValue;
+                    newContent.dataset.rawValue = itemValue;
 
                     let inserted = false;
                     const existingTabs = tabsContainer.querySelectorAll('.tab');
@@ -976,7 +1000,8 @@ function createPopupWindow(responseText, isLoading = false) {
                 if (existingTab) {
                   const tabIndex = existingTab.getAttribute('data-tab');
                   const contentDiv = document.getElementById('tab-' + tabIndex);
-                  if (contentDiv) {
+                  if (contentDiv && contentDiv.dataset.rawValue !== itemValue) {
+                    contentDiv.dataset.rawValue = itemValue;
                     contentDiv.innerHTML = itemValue;
                   }
                   return;
@@ -1001,6 +1026,7 @@ function createPopupWindow(responseText, isLoading = false) {
                 newContent.innerHTML = key === 'error'
                   ? '<span class="error-text">' + itemValue + '</span>'
                   : itemValue;
+                newContent.dataset.rawValue = itemValue;
 
                 let inserted = false;
                 const existingTabs = tabsContainer.querySelectorAll('.tab');
@@ -1330,19 +1356,7 @@ function registerShortcut() {
                     }
 
                     if (data.output_key) {
-                      if (!accumulatedOutput[data.output_key]) {
-                        accumulatedOutput[data.output_key] = [];
-                      }
-
-                      const elapsedMs = Date.now() - requestStartTime;
-                      const newItem = {
-                        value: data.value,
-                        tag: data.tag,
-                        model: data.model,
-                        elapsed: elapsedMs
-                      };
-
-                      accumulatedOutput[data.output_key].push(newItem);
+                      upsertOutputItem(accumulatedOutput, data, Date.now() - requestStartTime);
 
                       // Update popup with accumulated output
                       updatePopup(accumulatedOutput, !data.all_complete);
@@ -1395,17 +1409,7 @@ function registerShortcut() {
                   try {
                     const data = JSON.parse(line.slice(6));
                     if (data.output_key) {
-                      if (!accumulatedOutput[data.output_key]) {
-                        accumulatedOutput[data.output_key] = [];
-                      }
-                      const elapsedMs = Date.now() - requestStartTime;
-                      const newItem = {
-                        value: data.value,
-                        tag: data.tag,
-                        model: data.model,
-                        elapsed: elapsedMs
-                      };
-                      accumulatedOutput[data.output_key].push(newItem);
+                      upsertOutputItem(accumulatedOutput, data, Date.now() - requestStartTime);
 
                       updatePopup(accumulatedOutput, false);
                     } else if (data.output) {

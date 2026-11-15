@@ -227,7 +227,8 @@ async def run_agent_streaming(provider: str, human_message: HumanMessage, cancel
                 "output_key": output_key,
                 "value": result["value"],
                 "tag": result["tag"],
-                "model": result["model"]
+                "model": result["model"],
+                "partial": result.get("partial", False)
             }
     except asyncio.CancelledError:
         logger.info(f"Request cancelled for provider {provider}")
@@ -286,15 +287,17 @@ async def run_stream(request: SimpleRequest):
                         value = result["value"]
                         tag = result["tag"]
                         model = result["model"]
+                        partial = result["partial"]
 
-                        if output_key not in accumulated_output:
-                            accumulated_output[output_key] = []
+                        if not partial:
+                            if output_key not in accumulated_output:
+                                accumulated_output[output_key] = []
 
-                        accumulated_output[output_key].append({
-                            "value": value,
-                            "tag": tag,
-                            "model": model
-                        })
+                            accumulated_output[output_key].append({
+                                "value": value,
+                                "tag": tag,
+                                "model": model
+                            })
 
                         response_chunk = {
                             "output_key": output_key,
@@ -302,6 +305,7 @@ async def run_stream(request: SimpleRequest):
                             "tag": tag,
                             "model": model,
                             "provider": provider,
+                            "partial": partial,
                             "all_complete": False,
                         }
                         yield f"data: {json.dumps(response_chunk)}\n\n"
