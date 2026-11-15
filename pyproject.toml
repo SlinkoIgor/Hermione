@@ -5,16 +5,12 @@ description = "A language model agent with multiple capabilities"
 requires-python = ">=3.11"
 dependencies = [
     "pytz",
-    "langgraph",
-    "langgraph-sdk",
-    "langgraph-checkpoint-sqlite",
     "langsmith",
     "langchain-community",
     "langchain-core",
     "langchain-openai",
     "notebook",
     "numpy",
-    "langgraph-cli",
     "grandalf",
     "fastapi",
     "uvicorn",
