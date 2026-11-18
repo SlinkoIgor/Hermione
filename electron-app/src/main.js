@@ -19,6 +19,17 @@ let lastPopupBounds = {
 };
 let lastActiveTab = 0;
 let hasShownPopupForCurrentRequest = false;
+
+function savePopupBounds() {
+  if (!popupWindow || popupWindow.isDestroyed()) {
+    return;
+  }
+  const bounds = popupWindow.getBounds();
+  lastPopupBounds.width = bounds.width;
+  lastPopupBounds.height = bounds.height;
+  lastPopupBounds.x = bounds.x;
+  lastPopupBounds.y = bounds.y;
+}
 let userClosedPopupForCurrentRequest = false;
 let handleTextRequest = null;
 let activeRequestToken = 0;
@@ -945,8 +956,8 @@ function createPopupWindow(responseText, isLoading = false) {
       popupWindow = new BrowserWindow({
         width: lastPopupBounds.width,
         height: lastPopupBounds.height,
-        x: lastPopupBounds.x || cursorPosition.x,
-        y: lastPopupBounds.y || cursorPosition.y,
+        x: Number.isFinite(lastPopupBounds.x) ? lastPopupBounds.x : cursorPosition.x,
+        y: Number.isFinite(lastPopupBounds.y) ? lastPopupBounds.y : cursorPosition.y,
         frame: false,
         transparent: true,
         resizable: true,
@@ -956,14 +967,10 @@ function createPopupWindow(responseText, isLoading = false) {
         }
       });
 
-      // Store window bounds when resized
-      popupWindow.on('resize', () => {
-        const bounds = popupWindow.getBounds();
-        lastPopupBounds.width = bounds.width;
-        lastPopupBounds.height = bounds.height;
-        lastPopupBounds.x = bounds.x;
-        lastPopupBounds.y = bounds.y;
-      });
+      popupWindow.on('resize', savePopupBounds);
+      popupWindow.on('move', savePopupBounds);
+      popupWindow.on('moved', savePopupBounds);
+      popupWindow.on('close', savePopupBounds);
 
       popupWindow.on('closed', () => {
         popupWindow = null;
@@ -1182,6 +1189,7 @@ function createTextInputWindow(deferChrome = false) {
   }
 
   if (popupWindow && !popupWindow.isDestroyed()) {
+    savePopupBounds();
     popupWindow.destroy();
   }
 
@@ -1348,6 +1356,7 @@ function registerShortcut() {
           `);
           isPopupShowingContent = false;
         } else if (popupWindow && !popupWindow.isDestroyed()) {
+          savePopupBounds();
           popupWindow.destroy();
           popupWindow = null;
           isPopupShowingContent = false;
