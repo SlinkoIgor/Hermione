@@ -23,10 +23,14 @@ let userClosedPopupForCurrentRequest = false;
 let handleTextRequest = null;
 let activeRequestToken = 0;
 let activeRequestController = null;
+let hotkeyPressTimer = null;
+let pendingInputWindow = null;
 
 // Get environment variables
 const IS_DEV = process.env.NODE_ENV === 'development';
 const DEFAULT_PORT = 8123;
+const DOUBLE_PRESS_INTERVAL_MS = 300;
+const MANUAL_INPUT_PLACEHOLDER = 'Enter text and press Enter';
 const API_PORT = process.env.API_PORT || DEFAULT_PORT;
 const API_HOST = '127.0.0.1';
 const PROVIDER_MODE = process.env.PROVIDER_MODE || 'openai_only';
@@ -1168,7 +1172,7 @@ async function startPythonServer() {
   });
 }
 
-function createTextInputWindow() {
+function createTextInputWindow(deferChrome = false) {
   // The shortcut can fire while a request is streaming, so drop that request
   // to keep late chunks from overwriting the input window.
   activeRequestToken += 1;
@@ -1185,10 +1189,14 @@ function createTextInputWindow() {
   hasShownPopupForCurrentRequest = false;
   userClosedPopupForCurrentRequest = false;
 
+  const pendingStyle = deferChrome
+    ? '<style id="manualInputPending">.tab, #copyBtn { visibility: hidden; }</style>'
+    : '';
+  const placeholder = deferChrome ? '' : ` placeholder="${MANUAL_INPUT_PLACEHOLDER}"`;
   const inputWindow = createPopupWindow({
     tool_warning: false,
     output: {
-      existent: '<textarea id="manualTextInput" class="manual-text-input" placeholder="Enter text and press Enter"></textarea>'
+      existent: `${pendingStyle}<textarea id="manualTextInput" class="manual-text-input"${placeholder}></textarea>`
     }
   }, false);
 
@@ -1221,6 +1229,50 @@ function createTextInputWindow() {
         input.focus();
       })()
     `);
+  });
+
+  return inputWindow;
+}
+
+function runWhenInputWindowReady(inputWindow, callback) {
+  const isCurrent = () => (
+    inputWindow && !inputWindow.isDestroyed() && inputWindow === popupWindow
+  );
+  if (!isCurrent()) {
+    return;
+  }
+  const run = () => {
+    if (isCurrent()) {
+      callback();
+    }
+  };
+  if (inputWindow.webContents.isLoading()) {
+    inputWindow.webContents.once('did-finish-load', run);
+  } else {
+    run();
+  }
+}
+
+function revealManualInput(inputWindow) {
+  runWhenInputWindowReady(inputWindow, () => {
+    inputWindow.webContents.executeJavaScript(`
+      (() => {
+        document.getElementById('manualInputPending')?.remove();
+        const input = document.getElementById('manualTextInput');
+        if (input) input.placeholder = ${JSON.stringify(MANUAL_INPUT_PLACEHOLDER)};
+      })()
+    `);
+  });
+}
+
+function submitClipboardToInputWindow(inputWindow) {
+  runWhenInputWindowReady(inputWindow, () => {
+    const clipboardText = clipboard.readText();
+    if (clipboardText.trim()) {
+      handleTextRequest(clipboardText);
+    } else {
+      revealManualInput(inputWindow);
+    }
   });
 }
 
@@ -1456,7 +1508,18 @@ function registerShortcut() {
   };
 
   globalShortcut.register('Command+Option+H', () => {
-    handleTextRequest();
+    if (hotkeyPressTimer) {
+      clearTimeout(hotkeyPressTimer);
+      hotkeyPressTimer = null;
+      revealManualInput(pendingInputWindow);
+      return;
+    }
+    const inputWindow = createTextInputWindow(true);
+    pendingInputWindow = inputWindow;
+    hotkeyPressTimer = setTimeout(() => {
+      hotkeyPressTimer = null;
+      submitClipboardToInputWindow(inputWindow);
+    }, DOUBLE_PRESS_INTERVAL_MS);
   });
 
   globalShortcut.register('Command+Option+G', () => {

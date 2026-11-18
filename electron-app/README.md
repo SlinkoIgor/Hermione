@@ -8,7 +8,7 @@ This Electron application provides a convenient way to interact with the Hermion
 - Shows an icon in the menu bar
 - Automatically starts the Hermione API server
 - Allows sending the clipboard text to the API using the Cmd+Option+H shortcut
-- Allows typing text manually using the Cmd+Option+G shortcut
+- Allows typing text manually by pressing Cmd+Option+H twice (or Cmd+Option+G)
 
 ## Prerequisites
 
@@ -62,7 +62,7 @@ npm start
 2. The app will start automatically when your computer boots up
 3. Copy any text in any application
 4. Press Cmd+Option+H to send the clipboard text to the Hermione API
-5. Alternatively, press Cmd+Option+G to type the text manually and submit it with Enter
+5. Alternatively, press Cmd+Option+H twice (or Cmd+Option+G) to type the text manually and submit it with Enter
 6. The response will be processed by the API
 
 ## Requirements
